@@ -1,0 +1,10 @@
+raw_videos/
+frames/
+shuttle_dataset/images/
+shuttle_dataset/labels/
+shuttle_dataset/labels_raw/
+models/
+runs/
+__pycache__/
+*.npz
+*.pt
