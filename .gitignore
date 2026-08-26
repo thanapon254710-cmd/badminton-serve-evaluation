@@ -8,5 +8,4 @@ runs/
 __pycache__/
 *.npz
 *.pt
-back_calib_check.jpg
-side_calib_check.jpg
+outputs/
