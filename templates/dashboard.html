@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head><title>Serve Evaluation Dashboard</title>
+<style>
+  body { font-family: sans-serif; max-width: 700px; margin: 40px auto; }
+  .score { font-size: 48px; font-weight: bold; }
+  .deduction { color: #b00; margin: 4px 0; }
+  img { max-width: 100%; border: 1px solid #ccc; margin-top: 20px; }
+</style>
+</head>
+<body>
+<h2>Serve Evaluation Result</h2>
+{% if error %}
+  <p style="color:red;">{{ error }}</p>
+{% else %}
+  <div class="score">{{ "%.1f"|format(report.final_score) }} / 100</div>
+  <p>Trajectory points: {{ num_points }}</p>
+  <p>Peak height: {{ "%.2f"|format(report.max_height_m) }} m</p>
+  <p>Net clearance: {{ "%.2f"|format(report.net_clearance_m) }} m</p>
+  <p>Landing point: ({{ "%.2f"|format(report.landing_coordinate_m[0]) }}, {{ "%.2f"|format(report.landing_coordinate_m[1]) }}) m</p>
+  <h3>Deductions</h3>
+  {% for d in report.deductions %}
+    <div class="deduction">- {{ d }}</div>
+  {% endfor %}
+  <img src="/static/uploads/trajectory.png" alt="Trajectory chart">
+{% endif %}
+<br><a href="/">Start over</a>
+</body>
+</html>

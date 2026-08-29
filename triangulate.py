@@ -1,11 +1,26 @@
 import cv2
 import numpy as np
+import time
 from ultralytics import YOLO
 
 class BadmintonTracker3D:
-    def __init__(self, model_path, calib_file):
-        # Load YOLO model fine-tuned for badminton shuttlecocks
+    def __init__(self, model_path, calib_file, infer_width=960):
+        """
+        infer_width: resize frames to this width before YOLO inference
+        (keeps aspect ratio). Smaller = faster, at some cost to small-object
+        detection accuracy. Set to None to disable resizing and run at
+        native resolution.
+        """
         self.model = YOLO(model_path)
+        self.infer_width = infer_width
+
+        device = getattr(self.model, "device", None)
+        print(f"[triangulate] YOLO model loaded. Device: {device}")
+        try:
+            import torch
+            print(f"[triangulate] CUDA available: {torch.cuda.is_available()}")
+        except ImportError:
+            pass
 
         # Load precomputed camera projection matrices
         calib = np.load(calib_file)
@@ -14,12 +29,20 @@ class BadmintonTracker3D:
 
     def detect_shuttlecock_2d(self, frame):
         """Runs YOLOv8 inference to detect shuttlecock centroid (x, y)."""
-        results = self.model(frame, conf=0.20, verbose=False)
+        infer_frame = frame
+        scale = 1.0
+
+        if self.infer_width is not None and frame.shape[1] > self.infer_width:
+            scale = self.infer_width / frame.shape[1]
+            new_h = int(frame.shape[0] * scale)
+            infer_frame = cv2.resize(frame, (self.infer_width, new_h))
+
+        results = self.model(infer_frame, conf=0.20, verbose=False)
         for r in results:
             for box in r.boxes:
                 x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                cx = float((x1 + x2) / 2.0)
-                cy = float((y1 + y2) / 2.0)
+                cx = float((x1 + x2) / 2.0) / scale
+                cy = float((y1 + y2) / 2.0) / scale
                 return np.array([cx, cy], dtype=np.float32)
         return None
 
@@ -43,12 +66,17 @@ class BadmintonTracker3D:
         X_3d = X_homo[:3] / X_homo[3]  # Normalize by w
         return X_3d
 
-    def process_videos(self, side_video_path, back_video_path):
+    def process_videos(self, side_video_path, back_video_path, log_every=10):
         cap_side = cv2.VideoCapture(side_video_path)
         cap_back = cv2.VideoCapture(back_video_path)
 
+        total_side = int(cap_side.get(cv2.CAP_PROP_FRAME_COUNT))
+        total_back = int(cap_back.get(cv2.CAP_PROP_FRAME_COUNT))
+        print(f"[triangulate] side frames: {total_side}, back frames: {total_back}")
+
         trajectory_3d = []
         frame_idx = 0
+        start_time = time.time()
 
         while cap_side.isOpened() and cap_back.isOpened():
             ret_s, frame_s = cap_side.read()
@@ -70,6 +98,21 @@ class BadmintonTracker3D:
                 })
 
             frame_idx += 1
+
+            if frame_idx % log_every == 0:
+                elapsed = time.time() - start_time
+                fps = frame_idx / elapsed if elapsed > 0 else 0
+                print(
+                    f"[triangulate] frame {frame_idx} "
+                    f"({elapsed:.1f}s elapsed, {fps:.2f} fps, "
+                    f"{len(trajectory_3d)} points detected so far)"
+                )
+
+        elapsed = time.time() - start_time
+        print(
+            f"[triangulate] done: {frame_idx} frames processed in "
+            f"{elapsed:.1f}s, {len(trajectory_3d)} 3D points detected"
+        )
 
         cap_side.release()
         cap_back.release()

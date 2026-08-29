@@ -9,3 +9,6 @@ __pycache__/
 *.npz
 *.pt
 outputs/
+static/
+sync_videos/
+uploads_video/

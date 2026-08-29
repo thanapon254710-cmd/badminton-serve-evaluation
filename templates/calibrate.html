@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Calibrate Cameras</title>
+<style>
+  body { font-family: sans-serif; }
+  .canvas-wrap { display: inline-block; margin: 10px; vertical-align: top; }
+  canvas { border: 1px solid #333; cursor: crosshair; max-width: 480px; }
+  #status { margin: 10px 0; font-weight: bold; }
+</style>
+</head>
+<body>
+<h2>Click GCP points 0–{{ num_points - 1 }} in order, for each camera</h2>
+<p>Order: net-left, net-center, net-right, service-center, service-right, baseline-center, baseline-right</p>
+<div id="status">Side camera: click point 0</div>
+
+<div class="canvas-wrap">
+  <h3>Side camera</h3>
+  <canvas id="sideCanvas" width="{{ side_w }}" height="{{ side_h }}"></canvas>
+</div>
+<div class="canvas-wrap">
+  <h3>Back camera</h3>
+  <canvas id="backCanvas" width="{{ back_w }}" height="{{ back_h }}"></canvas>
+</div>
+
+<br>
+<button id="submitBtn" disabled>Save Calibration</button>
+<div id="result"></div>
+
+<script>
+const NUM_POINTS = 7;
+const sideCanvas = document.getElementById("sideCanvas");
+const backCanvas = document.getElementById("backCanvas");
+const sideCtx = sideCanvas.getContext("2d");
+const backCtx = backCanvas.getContext("2d");
+
+const sideImg = new Image();
+sideImg.src = "/static/uploads/side_frame.jpg";
+sideImg.onload = () => sideCtx.drawImage(sideImg, 0, 0, sideCanvas.width, sideCanvas.height);
+
+const backImg = new Image();
+backImg.src = "/static/uploads/back_frame.jpg";
+backImg.onload = () => backCtx.drawImage(backImg, 0, 0, backCanvas.width, backCanvas.height);
+
+let sidePoints = [];
+let backPoints = [];
+
+function drawPoint(ctx, x, y, label) {
+  ctx.fillStyle = "red";
+  ctx.beginPath();
+  ctx.arc(x, y, 5, 0, 2 * Math.PI);
+  ctx.fill();
+  ctx.fillStyle = "lime";
+  ctx.font = "14px sans-serif";
+  ctx.fillText(label, x + 8, y - 8);
+}
+
+function updateStatus() {
+  const status = document.getElementById("status");
+  if (sidePoints.length < NUM_POINTS) {
+    status.textContent = `Side camera: click point ${sidePoints.length}`;
+  } else if (backPoints.length < NUM_POINTS) {
+    status.textContent = `Back camera: click point ${backPoints.length}`;
+  } else {
+    status.textContent = "All points collected — ready to save.";
+    document.getElementById("submitBtn").disabled = false;
+  }
+}
+
+sideCanvas.addEventListener("click", (e) => {
+  if (sidePoints.length >= NUM_POINTS) return;
+  const rect = sideCanvas.getBoundingClientRect();
+  const scaleX = sideCanvas.width / rect.width;
+  const scaleY = sideCanvas.height / rect.height;
+  const x = (e.clientX - rect.left) * scaleX;
+  const y = (e.clientY - rect.top) * scaleY;
+  sidePoints.push([x, y]);
+  drawPoint(sideCtx, x, y, `GCP${sidePoints.length - 1}`);
+  updateStatus();
+});
+
+backCanvas.addEventListener("click", (e) => {
+  if (sidePoints.length < NUM_POINTS) return;
+  if (backPoints.length >= NUM_POINTS) return;
+  const rect = backCanvas.getBoundingClientRect();
+  const scaleX = backCanvas.width / rect.width;
+  const scaleY = backCanvas.height / rect.height;
+  const x = (e.clientX - rect.left) * scaleX;
+  const y = (e.clientY - rect.top) * scaleY;
+  backPoints.push([x, y]);
+  drawPoint(backCtx, x, y, `GCP${backPoints.length - 1}`);
+  updateStatus();
+});
+
+document.getElementById("submitBtn").addEventListener("click", async () => {
+  const resp = await fetch("/save_calibration", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      side_points: sidePoints, back_points: backPoints,
+      side_w: sideCanvas.width, side_h: sideCanvas.height,
+      back_w: backCanvas.width, back_h: backCanvas.height
+    })
+  });
+  const data = await resp.json();
+  if (data.error) {
+    document.getElementById("result").textContent = "Error: " + data.error;
+  } else {
+    document.getElementById("result").innerHTML =
+    'Calibration saved! <form id="evalForm" action="/run_evaluation" method="post">' +
+    '<select name="serve_type"><option value="short_front_corner">Short serve</option>' +
+    '<option value="high_back_corner">High serve</option></select>' +
+    '<button type="submit">Run Evaluation</button></form>';
+
+  document.getElementById("evalForm").addEventListener("submit", () => {
+    document.getElementById("result").innerHTML +=
+      '<p><strong>Processing video... this can take several minutes on CPU. Please wait.</strong></p>';
+  });
+  }
+});
+</script>
+</body>
+</html>
