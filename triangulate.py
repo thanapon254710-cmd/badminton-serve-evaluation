@@ -66,13 +66,17 @@ class BadmintonTracker3D:
         X_3d = X_homo[:3] / X_homo[3]  # Normalize by w
         return X_3d
 
-    def process_videos(self, side_video_path, back_video_path, log_every=10):
+    def process_videos(self, side_video_path, back_video_path, log_every=10, progress_callback=None):
         cap_side = cv2.VideoCapture(side_video_path)
         cap_back = cv2.VideoCapture(back_video_path)
 
         total_side = int(cap_side.get(cv2.CAP_PROP_FRAME_COUNT))
         total_back = int(cap_back.get(cv2.CAP_PROP_FRAME_COUNT))
-        print(f"[triangulate] side frames: {total_side}, back frames: {total_back}")
+        total_frames = min(total_side, total_back)
+        print(
+            f"[triangulate] side frames: {total_side}, "
+            f"back frames: {total_back}, processing: {total_frames}"
+        )
 
         trajectory_3d = []
         frame_idx = 0
@@ -99,9 +103,21 @@ class BadmintonTracker3D:
 
             frame_idx += 1
 
+            elapsed = time.time() - start_time
+            fps = frame_idx / elapsed if elapsed > 0 else 0
+
+            # Web UI progress: report every processed frame. The browser
+            # polls the server, so these updates are cheap and give an
+            # accurate "current frame / total frames" display.
+            if progress_callback is not None:
+                progress_callback(
+                    current=frame_idx,
+                    total=total_frames,
+                    fps=fps,
+                    detected=len(trajectory_3d),
+                )
+
             if frame_idx % log_every == 0:
-                elapsed = time.time() - start_time
-                fps = frame_idx / elapsed if elapsed > 0 else 0
                 print(
                     f"[triangulate] frame {frame_idx} "
                     f"({elapsed:.1f}s elapsed, {fps:.2f} fps, "

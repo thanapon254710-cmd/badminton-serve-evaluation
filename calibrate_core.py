@@ -33,9 +33,33 @@ WORLD_GCPS = np.array([
 
 NUM_GCPS = len(WORLD_GCPS)
 
-# app.py imports the mixed-case name `WORLD_GCPs` -- keep both names
-# pointing at the same array so nothing else needs to change.
-WORLD_GCPs = WORLD_GCPS
+# Human-readable role of each GCP, in click order. Shared by the CLI
+# (calibrate.py) and the web UI (app.py / calibrate.html) so the
+# instructions shown to the user always match WORLD_GCPS above.
+GCP_LABELS = [
+    "Net -- center tape (1.524 m)",
+    "Net -- left post / left sideline (1.550 m)",
+    "Net -- right post / right sideline (1.550 m)",
+    "Short service line -- center",
+    "Short service line -- right sideline",
+    "Back boundary -- center",
+    "Back boundary -- right sideline",
+]
+
+# Camera rig metadata, shared by calibrate.py (CLI) and app.py (web UI)
+# so both interfaces describe the same physical setup.
+CAMERA_META = {
+    "side": {
+        "name": "Side Camera",
+        "lens": "iPhone 15 Pro Max, Main 24 mm",
+        "height_m": 1.56,
+    },
+    "back": {
+        "name": "Back Camera",
+        "lens": "iPhone 15 Pro, Ultra Wide 13 mm",
+        "height_m": 2.10,
+    },
+}
 
 
 # ============================================================

@@ -9,13 +9,6 @@ import os
 #   BACK  : iPhone 15 Pro, Ultra Wide 13 mm, height 2.10 m
 #   Both  : 1920 x 1080, fixed cameras, slow motion
 #
-# Main change from the old version:
-#   Do NOT assume one fake focal length for both cameras and then
-#   use solvePnP.  Instead, estimate each camera's 3x4 projection
-#   matrix directly from the 7 measured 3D<->2D GCP correspondences
-#   using normalized DLT, then refine it by minimizing reprojection
-#   error.  This is much better suited to the current 7-point setup.
-#
 # GCP roles:
 #   GCP0-GCP2 = net-height references
 #   GCP3-GCP6 = floor points and serve-target references
@@ -25,11 +18,6 @@ import os
 #   Y = court width, center line = 0, right singles sideline = +2.59
 #   Z = height above floor
 #
-# IMPORTANT:
-#   The projection matrices produced here are intended for the
-#   current fixed-camera setup. For highest accuracy, especially
-#   with the 13 mm ultra-wide camera, a separate checkerboard/Charuco
-#   intrinsic calibration is still recommended later.
 # ============================================================
 
 # -----------------------------
@@ -63,17 +51,6 @@ CAMERAS = {
 # -----------------------------
 # 3D GCP coordinates
 # -----------------------------
-# Origin = center of net at floor level.
-#
-# Net:
-#   GCP0 = center of net tape: 1.524 m
-#   GCP1/GCP2 = near the net posts: 1.550 m
-#
-# Floor:
-#   GCP3 = short service line / center line
-#   GCP4 = short service line / right singles sideline
-#   GCP5 = back boundary / center line
-#   GCP6 = back boundary / right singles sideline
 WORLD_GCPS = np.array([
     [0.00,  0.00, 1.524],  # GCP0: center of net
     [0.00, -2.59, 1.550],  # GCP1: left net/post side
