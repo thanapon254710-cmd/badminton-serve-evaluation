@@ -119,12 +119,13 @@
   .page-layout {
     width: 100%;
     max-width: 1550px;
-    height: calc(100vh - 92px);
+    height: calc(100vh - 112px);
     margin: 0 auto;
     display: grid;
     grid-template-columns: minmax(0, 1fr) 245px;
     gap: 28px;
     align-items: start;
+    min-height: 0;
   }
 
   /* Right sidebar: reference on top, evaluation directly underneath. */
@@ -134,7 +135,8 @@
     flex-direction: column;
     gap: 14px;
     order: 2;
-    height: 100%;
+    height: auto;
+    align-self: start;
   }
 
   .reference-card {
@@ -169,6 +171,8 @@
 
   .reference-card img {
     width: 100%;
+    max-height: 300px;
+    object-fit: contain;
     display: block;
     border-radius: 6px;
   }
@@ -184,7 +188,8 @@
     min-width: 0;
     width: 100%;
     order: 1;
-    height: 100%;
+    height: auto;
+    min-height: 0;
     display: flex;
     flex-direction: column;
   }
@@ -297,8 +302,11 @@
     box-shadow: 0 1px 2px rgba(0,0,0,.04);
     border: 1px solid var(--border);
     width: 100%;
-    flex: 1;
+    aspect-ratio: 16 / 9;
+    height: auto;
+    max-height: calc(100vh - 260px);
     min-height: 0;
+    flex: none;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -318,6 +326,7 @@
     height: auto;
     display: block;
     background: #000;
+    flex: 0 0 auto;
   }
 
   canvas.inactive {
@@ -338,7 +347,7 @@
   .cam-stage.viewonly .view-only-note { display: inline-block; }
 
   .evaluate-panel {
-    margin-top: 200px;
+    margin-top: 0;
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: 12px;
@@ -893,10 +902,6 @@ function setProgressBar(current, total, fps, detected, message) {
     fill.classList.add("indeterminate");
     count.textContent = message || "Starting…";
   }
-
-  fpsEl.textContent =
-    (fps && fps > 0 ? `${fps.toFixed(2)} fps` : "") +
-    (detected !== undefined ? ` · ${detected} points` : "");
 }
 
 async function pollProgress() {

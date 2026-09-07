@@ -351,6 +351,11 @@
         <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
       </div>
 
+      <div id="syncStatus" style="display:none; margin-top:10px; padding:12px 14px; border:1px solid var(--border); border-radius:10px; background:var(--card);">
+        <div id="syncStatusTitle" style="font-size:13px; font-weight:600; margin-bottom:4px;">Preparing…</div>
+        <div id="syncStatusDetail" style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted);"></div>
+      </div>
+
     </form>
   </section>
 
@@ -503,6 +508,7 @@ form.addEventListener("submit", (e) => {
 
   const sideFile = document.getElementById("sideInput").files[0];
   const backFile = document.getElementById("backInput").files[0];
+
   if (!sideFile || !backFile) {
     formError.textContent = "Please select both a side camera and a back camera video.";
     formError.style.display = "block";
@@ -516,28 +522,51 @@ form.addEventListener("submit", (e) => {
   submitBtn.disabled = true;
   submitBtn.textContent = "Uploading…";
   progressWrap.style.display = "block";
+  document.getElementById("syncStatus").style.display = "block";
+  document.getElementById("syncStatusTitle").textContent = "Uploading videos…";
+  document.getElementById("syncStatusDetail").textContent = "Please keep this page open.";
 
   xhr.upload.addEventListener("progress", (e) => {
     if (e.lengthComputable) {
       const pct = Math.round((e.loaded / e.total) * 100);
       progressFill.style.width = pct + "%";
-      progressLabel.textContent = `${pct}% · ${bytesToSize(e.loaded)} / ${bytesToSize(e.total)}`;
+      progressLabel.textContent =
+        `${pct}% · ${bytesToSize(e.loaded)} / ${bytesToSize(e.total)}`;
     }
   });
 
   xhr.onload = () => {
-    if (xhr.status >= 200 && xhr.status < 400) {
-      progressFill.style.width = "100%";
-      progressLabel.textContent = "Upload complete — extracting frames…";
-      document.open();
-      document.write(xhr.responseText);
-      document.close();
-    } else {
+    if (xhr.status < 200 || xhr.status >= 400) {
       submitBtn.disabled = false;
       submitBtn.textContent = "Upload & Extract Frames";
       formError.textContent = "Upload failed (status " + xhr.status + "). Please try again.";
       formError.style.display = "block";
+      return;
     }
+
+    let response;
+    try {
+      response = JSON.parse(xhr.responseText);
+    } catch (err) {
+      formError.textContent = "Server returned an unexpected response.";
+      formError.style.display = "block";
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Upload & Extract Frames";
+      return;
+    }
+
+    if (!response.status_url) {
+      formError.textContent = response.error || "Could not start processing.";
+      formError.style.display = "block";
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Upload & Extract Frames";
+      return;
+    }
+
+    progressFill.style.width = "100%";
+    progressLabel.textContent = "Upload complete";
+
+    pollUploadJob(response.status_url);
   };
 
   xhr.onerror = () => {
@@ -549,6 +578,61 @@ form.addEventListener("submit", (e) => {
 
   xhr.send(data);
 });
+
+function pollUploadJob(statusUrl) {
+  fetch(statusUrl, { cache: "no-store" })
+    .then(r => r.json())
+    .then(job => {
+      const title = document.getElementById("syncStatusTitle");
+      const detail = document.getElementById("syncStatusDetail");
+
+      if (job.status === "extracting") {
+        title.textContent = "Extracting frames…";
+        const pct = job.total
+          ? Math.round((job.current / job.total) * 100)
+          : 0;
+        progressFill.style.width = pct + "%";
+        progressLabel.textContent =
+          `${job.current} / ${job.total} frames`;
+        detail.textContent = job.message || "Reading the uploaded videos frame by frame.";
+      } else if (job.status === "matching") {
+        title.textContent = "Synchronizing cameras…";
+        progressFill.style.width = "100%";
+        progressLabel.textContent = "Matching frame timing";
+        detail.textContent = job.message || "Finding the best 1-to-1 frame offset.";
+      } else if (job.status === "done") {
+        title.textContent = "✓ Videos synchronized";
+        progressFill.style.width = "100%";
+        progressLabel.textContent =
+          `${job.pair_count || 0} synchronized frame pairs`;
+        detail.textContent =
+          job.offset !== null && job.offset !== undefined
+            ? `Frame offset: ${job.offset} · Opening calibration…`
+            : "Synchronized frames are ready · Opening calibration…";
+
+        setTimeout(() => {
+          window.location.href = "/calibrate";
+        }, 700);
+        return;
+      } else if (job.status === "error") {
+        title.textContent = "Synchronization failed";
+        detail.textContent = job.error || "Unknown processing error.";
+        formError.textContent = job.error || "Automatic synchronization failed.";
+        formError.style.display = "block";
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Upload & Extract Frames";
+        return;
+      } else {
+        title.textContent = "Preparing…";
+        detail.textContent = job.message || "Starting automatic processing.";
+      }
+
+      setTimeout(() => pollUploadJob(statusUrl), 500);
+    })
+    .catch(() => {
+      setTimeout(() => pollUploadJob(statusUrl), 1000);
+    });
+}
 </script>
 </div>
 </body>

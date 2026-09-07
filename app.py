@@ -4,6 +4,7 @@ import numpy as np
 import threading
 import time
 import uuid
+import json
 from flask import Flask, render_template, request, redirect, url_for, jsonify
 
 from calibrate_core import solve_camera, WORLD_GCPS, GCP_LABELS, CAMERA_META
@@ -105,29 +106,382 @@ def run_evaluation_job(job_id, serve_type):
             error=str(exc),
         )
 
+
 @app.route("/")
 def index():
     return render_template("upload.html")
 
+
+# ---------------------------------------------------------------------------
+# Upload -> frame extraction -> automatic synchronization
+# ---------------------------------------------------------------------------
+
+upload_jobs = {}
+upload_jobs_lock = threading.Lock()
+
+
+def update_upload_job(job_id, **updates):
+    with upload_jobs_lock:
+        job = upload_jobs.get(job_id)
+        if job is not None:
+            job.update(updates)
+
+
+def get_upload_job(job_id):
+    with upload_jobs_lock:
+        job = upload_jobs.get(job_id)
+        return dict(job) if job is not None else None
+
+
+def clean_directory(path):
+    os.makedirs(path, exist_ok=True)
+    for name in os.listdir(path):
+        target = os.path.join(path, name)
+        if os.path.isfile(target):
+            try:
+                os.remove(target)
+            except OSError:
+                pass
+
+
+def extract_video_frames(video_path, output_dir, job_id, label):
+    """Extract every video frame as zero-padded JPG files."""
+    clean_directory(output_dir)
+
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise RuntimeError(f"Could not open {label} video.")
+
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
+    if fps <= 0:
+        fps = 30.0
+
+    frame_idx = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        out_path = os.path.join(output_dir, f"frame_{frame_idx:06d}.jpg")
+        if not cv2.imwrite(out_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 92]):
+            cap.release()
+            raise RuntimeError(f"Could not save extracted frame {frame_idx} for {label}.")
+
+        frame_idx += 1
+
+        if frame_idx % 5 == 0 or frame_idx == total:
+            update_upload_job(
+                job_id,
+                status="extracting",
+                current=frame_idx,
+                total=total,
+                message=f"Extracting {label} frames… {frame_idx} / {total}",
+            )
+
+    cap.release()
+
+    if frame_idx == 0:
+        raise RuntimeError(f"No frames could be extracted from the {label} video.")
+
+    return frame_idx, fps
+
+
+def create_sync_video(frame_paths, output_path, fps, frame_size):
+    """Create a video whose frame N is the synchronized pair's frame N."""
+    if not frame_paths:
+        raise RuntimeError("No synchronized frames available.")
+
+    width, height = frame_size
+    fourcc_candidates = ["mp4v", "avc1"]
+
+    writer = None
+    for codec in fourcc_candidates:
+        candidate = cv2.VideoWriter(
+            output_path,
+            cv2.VideoWriter_fourcc(*codec),
+            fps,
+            (width, height),
+        )
+        if candidate.isOpened():
+            writer = candidate
+            break
+        candidate.release()
+
+    if writer is None:
+        raise RuntimeError(
+            "Could not create synchronized MP4 video. "
+            "Please check that OpenCV has a usable MP4 codec."
+        )
+
+    try:
+        for frame_path in frame_paths:
+            frame = cv2.imread(frame_path)
+            if frame is None:
+                continue
+
+            if frame.shape[1] != width or frame.shape[0] != height:
+                frame = cv2.resize(frame, (width, height))
+
+            writer.write(frame)
+    finally:
+        writer.release()
+
+
+def save_synchronized_outputs(match_result, output_root, job_id, side_fps, back_fps):
+    """
+    Save the 1-to-1 pairs as:
+      matched/back2/pair_XXXX_back.jpg
+      matched/side2/pair_XXXX_side.jpg
+    and also create:
+      uploads_video/back_sync.mp4
+      uploads_video/side_sync.mp4
+    """
+    matches = match_result["matches"]
+    if not matches:
+        raise RuntimeError(
+            "No synchronized frame pairs were found. "
+            "The videos may not contain enough usable shuttlecock motion."
+        )
+
+    back_dir = os.path.join(output_root, "back2")
+    side_dir = os.path.join(output_root, "side2")
+    clean_directory(back_dir)
+    clean_directory(side_dir)
+
+    back_paths = []
+    side_paths = []
+
+    for idx, match in enumerate(matches, start=1):
+        src_back = os.path.join(match_result["folder_a"], match["file_a"])
+        src_side = os.path.join(match_result["folder_b"], match["file_b"])
+
+        back_frame = cv2.imread(src_back)
+        side_frame = cv2.imread(src_side)
+
+        if back_frame is None or side_frame is None:
+            continue
+
+        back_ext = ".jpg"
+        side_ext = ".jpg"
+
+        back_dst = os.path.join(back_dir, f"pair_{idx:04d}_back{back_ext}")
+        side_dst = os.path.join(side_dir, f"pair_{idx:04d}_side{side_ext}")
+
+        cv2.imwrite(back_dst, back_frame, [cv2.IMWRITE_JPEG_QUALITY, 92])
+        cv2.imwrite(side_dst, side_frame, [cv2.IMWRITE_JPEG_QUALITY, 92])
+
+        back_paths.append(back_dst)
+        side_paths.append(side_dst)
+
+    if not back_paths or not side_paths:
+        raise RuntimeError("Matched pairs were found, but no frames could be saved.")
+
+    # Use the first synchronized frames for calibration.
+    cv2.imwrite(
+        os.path.join(STATIC_DIR, "back_frame.jpg"),
+        cv2.imread(back_paths[0]),
+        [cv2.IMWRITE_JPEG_QUALITY, 95],
+    )
+    cv2.imwrite(
+        os.path.join(STATIC_DIR, "side_frame.jpg"),
+        cv2.imread(side_paths[0]),
+        [cv2.IMWRITE_JPEG_QUALITY, 95],
+    )
+
+    # Create synchronized videos for the later triangulation stage.
+    back0 = cv2.imread(back_paths[0])
+    side0 = cv2.imread(side_paths[0])
+
+    create_sync_video(
+        back_paths,
+        os.path.join(UPLOAD_VIDEO_DIR, "back_sync.mp4"),
+        back_fps,
+        (back0.shape[1], back0.shape[0]),
+    )
+    create_sync_video(
+        side_paths,
+        os.path.join(UPLOAD_VIDEO_DIR, "side_sync.mp4"),
+        side_fps,
+        (side0.shape[1], side0.shape[0]),
+    )
+
+    return len(back_paths)
+
+
+def run_upload_job(job_id):
+    try:
+        job = get_upload_job(job_id)
+        if not job:
+            return
+
+        side_path = job["side_path"]
+        back_path = job["back_path"]
+        work_dir = job["work_dir"]
+
+        side_frames = os.path.join(work_dir, "side_frames")
+        back_frames = os.path.join(work_dir, "back_frames")
+        matched_root = os.path.join(work_dir, "matched")
+
+        update_upload_job(
+            job_id,
+            status="extracting",
+            current=0,
+            total=0,
+            message="Preparing videos…",
+        )
+
+        side_count, side_fps = extract_video_frames(
+            side_path, side_frames, job_id, "side"
+        )
+        back_count, back_fps = extract_video_frames(
+            back_path, back_frames, job_id, "back"
+        )
+
+        update_upload_job(
+            job_id,
+            status="matching",
+            current=0,
+            total=max(side_count, back_count),
+            message="Synchronizing side and back camera frames…",
+        )
+
+        # matching.py remains the single source of truth for synchronization.
+        from matching import match_badminton
+
+        # Folder A = back, Folder B = side, matching.py returns
+        # file_a/file_b pairs with a strict 1-to-1 frame offset.
+        result = match_badminton(back_frames, side_frames)
+
+        os.makedirs(matched_root, exist_ok=True)
+        with open(os.path.join(matched_root, "matched.json"), "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+
+        pair_count = save_synchronized_outputs(
+            result,
+            matched_root,
+            job_id,
+            side_fps,
+            back_fps,
+        )
+
+        # Keep the matched metadata at the project-level path too, for easy debugging.
+        with open(os.path.join(BASE, "matched.json"), "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+
+        # Triangulation should use the synchronized videos, not the raw uploads.
+        update_upload_job(
+            job_id,
+            status="done",
+            done=True,
+            current=pair_count,
+            total=pair_count,
+            message=f"Synchronization complete — {pair_count} frame pairs ready.",
+            offset=None,  # filled below when available
+            pair_count=pair_count,
+            side_frames=side_count,
+            back_frames=back_count,
+        )
+
+        # matching.py uses a constant frame offset. Because every synchronized
+        # pair is kept in its original frame order, the first pair tells us
+        # the same offset without running the detector a second time.
+        try:
+            first_match = result["matches"][0]
+            back_idx = int(os.path.splitext(first_match["file_a"])[0].split("_")[-1])
+            side_idx = int(os.path.splitext(first_match["file_b"])[0].split("_")[-1])
+            offset = back_idx - side_idx
+        except Exception:
+            offset = None
+
+        update_upload_job(job_id, offset=offset)
+
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        update_upload_job(
+            job_id,
+            status="error",
+            done=False,
+            error=str(exc),
+            message="Upload processing failed.",
+        )
+
+
 @app.route("/upload", methods=["POST"])
 def upload():
-    side_video = request.files["side_video"]
-    back_video = request.files["back_video"]
+    side_video = request.files.get("side_video")
+    back_video = request.files.get("back_video")
 
+    if not side_video or not back_video:
+        return jsonify({"error": "Please upload both side and back camera videos."}), 400
+
+    if not side_video.filename or not back_video.filename:
+        return jsonify({"error": "Please upload both side and back camera videos."}), 400
+
+    # Fixed filenames are intentional: the rest of the existing application
+    # expects these names. The raw originals remain available.
     side_path = os.path.join(UPLOAD_VIDEO_DIR, "side.mp4")
     back_path = os.path.join(UPLOAD_VIDEO_DIR, "back.mp4")
+
     side_video.save(side_path)
     back_video.save(back_path)
 
-    for video_path, out_name in [(side_path, "side_frame.jpg"), (back_path, "back_frame.jpg")]:
-        cap = cv2.VideoCapture(video_path)
-        ret, frame = cap.read()
-        cap.release()
-        if not ret:
-            return f"Could not read {video_path}", 400
-        cv2.imwrite(os.path.join(STATIC_DIR, out_name), frame)
+    job_id = uuid.uuid4().hex
+    work_dir = os.path.join(UPLOAD_VIDEO_DIR, f"sync_job_{job_id}")
 
-    return redirect(url_for("calibrate_page"))
+    job = {
+        "job_id": job_id,
+        "status": "starting",
+        "current": 0,
+        "total": 0,
+        "done": False,
+        "message": "Starting automatic extraction and synchronization…",
+        "error": None,
+        "side_path": side_path,
+        "back_path": back_path,
+        "work_dir": work_dir,
+        "created_at": time.time(),
+    }
+
+    os.makedirs(work_dir, exist_ok=True)
+
+    with upload_jobs_lock:
+        upload_jobs[job_id] = job
+
+    worker = threading.Thread(
+        target=run_upload_job,
+        args=(job_id,),
+        daemon=True,
+    )
+    worker.start()
+
+    return jsonify({
+        "job_id": job_id,
+        "status_url": url_for("upload_status", job_id=job_id),
+    })
+
+
+@app.route("/upload_status/<job_id>")
+def upload_status(job_id):
+    job = get_upload_job(job_id)
+    if job is None:
+        return jsonify({"error": "Upload job not found."}), 404
+
+    return jsonify({
+        "job_id": job["job_id"],
+        "status": job["status"],
+        "current": job.get("current", 0),
+        "total": job.get("total", 0),
+        "done": job.get("done", False),
+        "message": job.get("message", ""),
+        "error": job.get("error"),
+        "pair_count": job.get("pair_count", 0),
+        "offset": job.get("offset"),
+        "side_frames": job.get("side_frames", 0),
+        "back_frames": job.get("back_frames", 0),
+    })
+
 
 @app.route("/calibrate")
 def calibrate_page():
