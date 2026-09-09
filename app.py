@@ -42,7 +42,7 @@ def get_evaluation_job(job_id):
         return dict(job) if job is not None else None
 
 
-def run_evaluation_job(job_id, serve_type):
+def run_evaluation_job(job_id):
     try:
         update_evaluation_job(job_id, status="loading", message="Loading YOLO model…")
 
@@ -83,7 +83,9 @@ def run_evaluation_job(job_id, serve_type):
             current=get_evaluation_job(job_id).get("total", 0),
         )
 
-        report = evaluate_serve_performance(trajectory, serve_type=serve_type)
+        # serve_type defaults to "auto": the evaluator classifies short vs.
+        # high/long serve itself from where the shuttle actually landed.
+        report = evaluate_serve_performance(trajectory)
         save_trajectory_chart(
             trajectory,
             os.path.join(STATIC_DIR, "trajectory.png")
@@ -975,8 +977,6 @@ def save_calibration():
 
 @app.route("/run_evaluation", methods=["POST"])
 def run_evaluation():
-    serve_type = request.form.get("serve_type", "short_front_corner")
-
     if not os.path.exists(os.path.join(BASE, "web_calibration.npz")):
         return jsonify({"error": "Calibration has not been saved yet."}), 400
 
@@ -998,7 +998,7 @@ def run_evaluation():
 
     worker = threading.Thread(
         target=run_evaluation_job,
-        args=(job_id, serve_type),
+        args=(job_id,),
         daemon=True,
     )
     worker.start()

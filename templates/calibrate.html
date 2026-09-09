@@ -388,16 +388,6 @@
     gap: 9px;
   }
 
-  select#serveType {
-    font-family: 'Inter', sans-serif;
-    font-size: 13px;
-    padding: 9px 10px;
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    background: #fff;
-    color: var(--ink);
-    width: 100%;
-  }
 
   #evaluateBtn {
     width: 100%;
@@ -587,11 +577,8 @@
       <div class="evaluate-panel">
         <div id="evaluateForm">
           <h3>Run evaluation</h3>
+          <p class="lead">Serve type (short vs. high/long) is detected automatically from where the shuttle lands.</p>
           <div class="evaluate-row">
-            <select id="serveType">
-              <option value="short_front_corner">Short serve</option>
-              <option value="high_back_corner">High serve</option>
-            </select>
             <button class="btn btn-primary" id="evaluateBtn" disabled>Run Evaluation</button>
           </div>
 
@@ -985,7 +972,6 @@ document.getElementById("evaluateBtn").addEventListener("click", async () => {
   clearError();
 
   const btn = document.getElementById("evaluateBtn");
-  const serveType = document.getElementById("serveType").value;
 
   btn.disabled = true;
   btn.textContent = "Starting…";
@@ -1013,16 +999,13 @@ document.getElementById("evaluateBtn").addEventListener("click", async () => {
       );
     }
 
-    const startBody = new URLSearchParams();
-    startBody.set("serve_type", serveType);
-
     const startResp = await fetch("/run_evaluation", {
       method: "POST",
       headers: {
         "Content-Type":
           "application/x-www-form-urlencoded;charset=UTF-8"
       },
-      body: startBody.toString()
+      body: ""
     });
 
     const startData = await startResp.json();

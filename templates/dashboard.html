@@ -662,8 +662,8 @@
   <div class="hero-copy">
     <h1>Serve performance</h1>
     <p class="subtitle">
-      Your two-camera footage has been reconstructed into a 3D shuttle trajectory
-      and evaluated against the selected serve target.
+      Your two-camera footage has been reconstructed into a 3D shuttle trajectory.
+      Detected serve type: <strong>{{ report.serve_type_label }}</strong>, based on where the shuttle landed.
     </p>
   </div>
 
@@ -680,7 +680,17 @@
 
   {% set landing_x = report.landing_coordinate_m[0] %}
   {% set landing_y = report.landing_coordinate_m[1] %}
-  {% set landing_in = (landing_x >= 0 and landing_x <= 6.70 and landing_y >= -3.05 and landing_y <= 3.05) %}
+  {#
+    Court bounds, in the same net-centre-origin metres used everywhere
+    else (X = depth from the net, Y = lateral offset from the centre
+    line). The calibration only models the singles sidelines (GCP2/GCP4/
+    GCP6 at Y = 2.59m -- see calibrate_core.py), so "IN" must be checked
+    against that 2.59m half-width, not the wider 3.05m doubles sideline
+    the previous check used. Using the wider bound made shots that were
+    genuinely wide of the singles sideline still show as "IN".
+  #}
+  {% set court_half_width_m = 2.59 %}
+  {% set landing_in = (landing_x >= 0 and landing_x <= 6.70 and landing_y >= -court_half_width_m and landing_y <= court_half_width_m) %}
 
 <div class="metrics">
   <div class="card metric">
