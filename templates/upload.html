@@ -607,11 +607,11 @@ function pollUploadJob(statusUrl) {
           `${job.pair_count || 0} synchronized frame pairs`;
         detail.textContent =
           job.offset !== null && job.offset !== undefined
-            ? `Frame offset: ${job.offset} · Opening calibration…`
-            : "Synchronized frames are ready · Opening calibration…";
+            ? `Frame offset: ${job.offset} · Opening sync verification…`
+            : "Synchronized frames are ready · Opening sync verification…";
 
         setTimeout(() => {
-          window.location.href = "/calibrate";
+          window.location.href = job.verify_url || ("/sync-verify/" + job.job_id);
         }, 700);
         return;
       } else if (job.status === "error") {

@@ -61,8 +61,8 @@ def run_evaluation_job(job_id, serve_type):
             )
 
         trajectory = tracker.process_videos(
-            os.path.join(UPLOAD_VIDEO_DIR, "side.mp4"),
-            os.path.join(UPLOAD_VIDEO_DIR, "back.mp4"),
+            os.path.join(UPLOAD_VIDEO_DIR, "side_sync.mp4"),
+            os.path.join(UPLOAD_VIDEO_DIR, "back_sync.mp4"),
             progress_callback=progress_callback,
         )
 
@@ -293,20 +293,26 @@ def save_synchronized_outputs(match_result, output_root, job_id, side_fps, back_
     back0 = cv2.imread(back_paths[0])
     side0 = cv2.imread(side_paths[0])
 
+    # Every pair index represents the same instant, so both output videos
+    # must use the same playback FPS.
+    sync_fps = min(side_fps, back_fps)
+    if sync_fps <= 0:
+        sync_fps = 30.0
+
     create_sync_video(
         back_paths,
         os.path.join(UPLOAD_VIDEO_DIR, "back_sync.mp4"),
-        back_fps,
+        sync_fps,
         (back0.shape[1], back0.shape[0]),
     )
     create_sync_video(
         side_paths,
         os.path.join(UPLOAD_VIDEO_DIR, "side_sync.mp4"),
-        side_fps,
+        sync_fps,
         (side0.shape[1], side0.shape[0]),
     )
 
-    return len(back_paths)
+    return len(back_paths), sync_fps
 
 
 def run_upload_job(job_id):
@@ -357,7 +363,7 @@ def run_upload_job(job_id):
         with open(os.path.join(matched_root, "matched.json"), "w", encoding="utf-8") as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
 
-        pair_count = save_synchronized_outputs(
+        pair_count, sync_fps = save_synchronized_outputs(
             result,
             matched_root,
             job_id,
@@ -368,20 +374,6 @@ def run_upload_job(job_id):
         # Keep the matched metadata at the project-level path too, for easy debugging.
         with open(os.path.join(BASE, "matched.json"), "w", encoding="utf-8") as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
-
-        # Triangulation should use the synchronized videos, not the raw uploads.
-        update_upload_job(
-            job_id,
-            status="done",
-            done=True,
-            current=pair_count,
-            total=pair_count,
-            message=f"Synchronization complete — {pair_count} frame pairs ready.",
-            offset=None,  # filled below when available
-            pair_count=pair_count,
-            side_frames=side_count,
-            back_frames=back_count,
-        )
 
         # matching.py uses a constant frame offset. Because every synchronized
         # pair is kept in its original frame order, the first pair tells us
@@ -394,7 +386,20 @@ def run_upload_job(job_id):
         except Exception:
             offset = None
 
-        update_upload_job(job_id, offset=offset)
+        # Triangulation should use the synchronized videos, not the raw uploads.
+        update_upload_job(
+            job_id,
+            status="done",
+            done=True,
+            current=pair_count,
+            total=pair_count,
+            message=f"Synchronization complete — {pair_count} frame pairs ready.",
+            offset=offset,
+            pair_count=pair_count,
+            sync_fps=sync_fps,
+            side_frames=side_count,
+            back_frames=back_count,
+        )
 
     except Exception as exc:
         import traceback
@@ -480,7 +485,77 @@ def upload_status(job_id):
         "offset": job.get("offset"),
         "side_frames": job.get("side_frames", 0),
         "back_frames": job.get("back_frames", 0),
+        "sync_fps": job.get("sync_fps", 30.0),
+        "verify_url": (
+            url_for("sync_verify_page", job_id=job_id)
+            if job.get("done") else None
+        ),
     })
+
+
+@app.route("/sync-verify/<job_id>")
+def sync_verify_page(job_id):
+    job = get_upload_job(job_id)
+    if job is None:
+        return "Synchronization job not found.", 404
+    if not job.get("done"):
+        return redirect(url_for("index"))
+
+    pair_count = int(job.get("pair_count", 0))
+    if pair_count <= 0:
+        return "No synchronized frame pairs are available.", 400
+
+    return render_template(
+        "sync_verify.html",
+        job_id=job_id,
+        pair_count=pair_count,
+        offset=job.get("offset"),
+        fps=job.get("sync_fps", 30.0),
+    )
+
+
+@app.route("/sync-frame/<job_id>/<int:pair_idx>/<camera>")
+def sync_frame(job_id, pair_idx, camera):
+    job = get_upload_job(job_id)
+    if job is None or not job.get("done"):
+        return "Synchronization job not found.", 404
+
+    if camera not in ("side", "back"):
+        return "Invalid camera.", 400
+
+    pair_count = int(job.get("pair_count", 0))
+    if pair_idx < 0 or pair_idx >= pair_count:
+        return "Frame out of range.", 404
+
+    matched_root = os.path.join(job["work_dir"], "matched")
+    if camera == "side":
+        frame_path = os.path.join(
+            matched_root, "side2", f"pair_{pair_idx + 1:04d}_side.jpg"
+        )
+    else:
+        frame_path = os.path.join(
+            matched_root, "back2", f"pair_{pair_idx + 1:04d}_back.jpg"
+        )
+
+    if not os.path.exists(frame_path):
+        return "Synchronized frame not found.", 404
+
+    from flask import send_file
+    response = send_file(frame_path, mimetype="image/jpeg", max_age=0)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.route("/sync-confirm/<job_id>", methods=["POST"])
+def sync_confirm(job_id):
+    job = get_upload_job(job_id)
+    if job is None:
+        return jsonify({"error": "Synchronization job not found."}), 404
+
+    if not job.get("done") or int(job.get("pair_count", 0)) <= 0:
+        return jsonify({"error": "Synchronization is not ready."}), 400
+
+    return jsonify({"ok": True, "redirect_url": url_for("calibrate_page")})
 
 
 @app.route("/calibrate")

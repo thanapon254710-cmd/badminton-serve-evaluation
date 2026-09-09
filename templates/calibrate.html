@@ -119,13 +119,12 @@
   .page-layout {
     width: 100%;
     max-width: 1550px;
-    height: calc(100vh - 112px);
+    height: calc(100vh - 92px);
     margin: 0 auto;
     display: grid;
     grid-template-columns: minmax(0, 1fr) 245px;
     gap: 28px;
-    align-items: start;
-    min-height: 0;
+    align-items: stretch;
   }
 
   /* Right sidebar: reference on top, evaluation directly underneath. */
@@ -171,8 +170,7 @@
 
   .reference-card img {
     width: 100%;
-    max-height: 300px;
-    object-fit: contain;
+    object-fit: cover;
     display: block;
     border-radius: 6px;
   }
@@ -188,8 +186,7 @@
     min-width: 0;
     width: 100%;
     order: 1;
-    height: auto;
-    min-height: 0;
+    height: 100%;
     display: flex;
     flex-direction: column;
   }
@@ -302,19 +299,30 @@
     box-shadow: 0 1px 2px rgba(0,0,0,.04);
     border: 1px solid var(--border);
     width: 100%;
-    aspect-ratio: 16 / 9;
-    height: auto;
-    max-height: calc(100vh - 260px);
+    flex: 1;
     min-height: 0;
-    flex: none;
     display: flex;
     align-items: center;
     justify-content: center;
     overflow: hidden;
   }
 
-  .cam-stage { display: none; }
-  .cam-stage.shown { display: block; }
+  .cam-stage {
+    display: none;
+    height: 100%;
+    width: 100%;
+  }
+
+  .cam-stage.shown {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 100%;
+    width: 100%;
+    min-height: 0;
+  }
 
   canvas {
     border: 1px solid var(--border);
@@ -324,9 +332,12 @@
     max-height: 100%;
     width: auto;
     height: auto;
+    min-height: 0;
+    min-width: 0;
+    flex: 0 1 auto;
     display: block;
     background: #000;
-    flex: 0 0 auto;
+    object-fit: contain;
   }
 
   canvas.inactive {
@@ -336,6 +347,7 @@
 
   .view-only-note {
     display: none;
+    flex: none;
     font-size: 12px;
     color: var(--muted);
     margin-top: 8px;
@@ -347,7 +359,7 @@
   .cam-stage.viewonly .view-only-note { display: inline-block; }
 
   .evaluate-panel {
-    margin-top: 0;
+    margin-top: 200px;
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: 12px;
@@ -565,7 +577,7 @@
     <aside class="reference-panel">
       <div class="reference-card" id="guideTop">
         <h4>Top camera reference</h4>
-        <img src="/static/guide/top_view.jpg" alt="Top camera reference">
+        <img src="/static/guide/top_view_spot.jpg" alt="Top camera reference">
       </div>
 
       <div class="evaluate-panel">
@@ -631,16 +643,10 @@
       <div class="canvas-wrap">
         <div class="cam-stage" id="stageSide">
           <canvas id="sideCanvas" width="{{ side_w }}" height="{{ side_h }}"></canvas>
-          <span class="view-only-note">
-            Reference view &mdash; switch to the active camera tab to keep clicking points.
-          </span>
         </div>
 
         <div class="cam-stage" id="stageBack">
           <canvas id="backCanvas" width="{{ back_w }}" height="{{ back_h }}"></canvas>
-          <span class="view-only-note">
-            Reference view &mdash; switch to the active camera tab to keep clicking points.
-          </span>
         </div>
       </div>
 
@@ -902,6 +908,10 @@ function setProgressBar(current, total, fps, detected, message) {
     fill.classList.add("indeterminate");
     count.textContent = message || "Starting…";
   }
+
+  fpsEl.textContent =
+    (fps && fps > 0 ? `${fps.toFixed(2)} fps` : "") +
+    (detected !== undefined ? ` · ${detected} points` : "");
 }
 
 async function pollProgress() {
