@@ -372,20 +372,11 @@
 
   <main class="content">
     <div class="heading">
-      <p class="eyebrow">SYNC CHECK</p>
       <h1>Verify camera synchronization</h1>
       <p class="subtitle">
         Both views below are exact matched frame pairs produced by the synchronization step.
         Move the slider or play the pairs to check that the motion happens at the same moment.
       </p>
-
-      <div class="summary">
-        <span class="pill">Pairs: <strong id="pairCount">{{ pair_count }}</strong></span>
-        <span class="pill">Matching offset:
-          <strong>{{ offset if offset is not none else "n/a" }}</strong> frames
-        </span>
-        <span class="pill">Playback: <strong>{{ "%.2f"|format(fps) }}</strong> fps</span>
-      </div>
     </div>
 
     <section class="verification-card">
@@ -435,19 +426,13 @@
           </div>
         </div>
 
-        <div class="help">
-          <strong>Tip:</strong> press Play and watch the racket/shuttle movement in both views.
-          If an event appears at different moments, use the slider to inspect the surrounding pairs.
-          The two images always come from the same matched pair index.
-        </div>
-
         <div id="error"></div>
 
         <div class="actions">
           <button class="btn" id="backBtn" type="button">← Re-upload</button>
           <div class="actions-right">
             <button class="btn" id="confirmBtn" type="button">
-              ✓ Sync looks correct — Continue to calibration
+              Continue to calibration
             </button>
           </div>
         </div>

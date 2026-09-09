@@ -191,6 +191,18 @@
     font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--muted);
   }
 
+  .preview-note {
+    display: none;
+    margin-top: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--paper);
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
   #formError {
     display: none; font-size: 13px; color: var(--danger);
     background: #fbeceb; border: 1px solid #f3c9c6; border-radius: 8px; padding: 10px 12px;
@@ -304,11 +316,15 @@
     </span>
     <span class="step-line"></span>
     <span class="step">
-      <span class="step-number">2</span> Calibrate
+      <span class="step-number">2</span> Verify sync
     </span>
     <span class="step-line"></span>
     <span class="step">
-      <span class="step-number">3</span> Results
+      <span class="step-number">3</span> Calibrate
+    </span>
+    <span class="step-line"></span>
+    <span class="step">
+      <span class="step-number">4</span> Results
     </span>
   </div>
 </div>
@@ -362,13 +378,12 @@
   <section class="preview-panel">
     <div class="preview-heading">
       <div>
-        <p class="eyebrow">PREVIEW</p>
         <h2>Uploaded clips</h2>
       </div>
       <span class="preview-count" id="previewCount">0 / 2</span>
     </div>
 
-    <div class="preview-grid">
+<div class="preview-grid">
       <div class="preview-card">
         <div class="preview-card-header">
           <div style="min-width:0;">
@@ -403,6 +418,11 @@
         </div>
       </div>
     </div>
+
+    <div class="preview-note" id="previewNote">
+      Preview shows your original uploaded video. The same file is used
+      directly for frame extraction and synchronization.
+    </div>
   </section>
 </div>
 
@@ -415,32 +435,40 @@ function bytesToSize(bytes) {
   return `${val.toFixed(1)} ${units[i]}`;
 }
 
-function setVideoPreview(inputId, videoId, wrapId, nameId) {
-  const input = document.getElementById(inputId);
-  const video = document.getElementById(videoId);
-  const wrap = document.getElementById(wrapId);
-  const nameEl = document.getElementById(nameId);
+function setVideoPreview(inputId, videoId, wrapId, nameId, camera) {
+    const input = document.getElementById(inputId);
+    const video = document.getElementById(videoId);
+    const wrap = document.getElementById(wrapId);
+    const name = document.getElementById(nameId);
 
-  if (input._previewUrl) {
-    URL.revokeObjectURL(input._previewUrl);
-    input._previewUrl = null;
-  }
+    const file = input.files && input.files[0];
 
-  const file = input.files[0];
-  if (!file) {
-    video.removeAttribute("src");
+    if (input._previewUrl) {
+        URL.revokeObjectURL(input._previewUrl);
+        input._previewUrl = null;
+    }
+
+    if (!file) {
+        video.removeAttribute("src");
+        video.load();
+        video.style.display = "none";
+        wrap.classList.add("empty");
+        name.textContent = "No video selected";
+        return;
+    }
+
+    name.textContent = file.name;
+    wrap.classList.remove("empty");
+
+    // Videos are expected to already be browser-compatible MP4 (H.264/AAC)
+    // before upload, so the local blob preview is the final preview — no
+    // server-side conversion round trip needed here.
+    input._previewUrl = URL.createObjectURL(file);
+    video.src = input._previewUrl;
+    video.muted = true;
+    video.playsInline = true;
+    video.style.display = "block";
     video.load();
-    video.style.display = "none";
-    wrap.classList.add("empty");
-    nameEl.textContent = "No file selected";
-    return;
-  }
-
-  input._previewUrl = URL.createObjectURL(file);
-  video.src = input._previewUrl;
-  video.style.display = "block";
-  wrap.classList.remove("empty");
-  nameEl.textContent = `${file.name} · ${bytesToSize(file.size)}`;
 }
 
 function updatePreviewCount() {
@@ -463,7 +491,8 @@ function wireDropzone(zoneId, inputId, filenameId, subId, defaultSub) {
       subEl.textContent = defaultSub;
       setVideoPreview(inputId, inputId === "sideInput" ? "sidePreview" : "backPreview",
         inputId === "sideInput" ? "sideVideoWrap" : "backVideoWrap",
-        inputId === "sideInput" ? "sidePreviewName" : "backPreviewName");
+        inputId === "sideInput" ? "sidePreviewName" : "backPreviewName",
+        inputId === "sideInput" ? "side" : "back");
       updatePreviewCount();
       return;
     }
@@ -472,7 +501,8 @@ function wireDropzone(zoneId, inputId, filenameId, subId, defaultSub) {
     subEl.textContent = "Selected — click to change";
     setVideoPreview(inputId, inputId === "sideInput" ? "sidePreview" : "backPreview",
       inputId === "sideInput" ? "sideVideoWrap" : "backVideoWrap",
-      inputId === "sideInput" ? "sidePreviewName" : "backPreviewName");
+      inputId === "sideInput" ? "sidePreviewName" : "backPreviewName",
+      inputId === "sideInput" ? "side" : "back");
     updatePreviewCount();
   }
 
@@ -495,6 +525,16 @@ function wireDropzone(zoneId, inputId, filenameId, subId, defaultSub) {
 wireDropzone("dzSide", "sideInput", "sideFilename", "sideSub", "iPhone 15 Pro Max · 24mm · drop file or click to browse");
 wireDropzone("dzBack", "backInput", "backFilename", "backSub", "iPhone 15 Pro Ultra Wide · 13mm · drop file or click to browse");
 
+document.getElementById("sidePreview").addEventListener("error", () => {
+  document.getElementById("sidePreview").style.display = "none";
+  document.getElementById("sideVideoWrap").classList.add("empty");
+});
+
+document.getElementById("backPreview").addEventListener("error", () => {
+  document.getElementById("backPreview").style.display = "none";
+  document.getElementById("backVideoWrap").classList.add("empty");
+});
+
 const form = document.getElementById("uploadForm");
 const submitBtn = document.getElementById("submitBtn");
 const progressWrap = document.getElementById("progressWrap");
@@ -516,6 +556,7 @@ form.addEventListener("submit", (e) => {
   }
 
   const data = new FormData(form);
+
   const xhr = new XMLHttpRequest();
   xhr.open("POST", form.action, true);
 
@@ -601,18 +642,47 @@ function pollUploadJob(statusUrl) {
         progressLabel.textContent = "Matching frame timing";
         detail.textContent = job.message || "Finding the best 1-to-1 frame offset.";
       } else if (job.status === "done") {
-        title.textContent = "✓ Videos synchronized";
+        title.textContent = "✓ Videos ready";
         progressFill.style.width = "100%";
         progressLabel.textContent =
           `${job.pair_count || 0} synchronized frame pairs`;
         detail.textContent =
           job.offset !== null && job.offset !== undefined
-            ? `Frame offset: ${job.offset} · Opening sync verification…`
-            : "Synchronized frames are ready · Opening sync verification…";
+            ? `Frame offset: ${job.offset} · Synchronized previews are ready.`
+            : "Synchronized frames and previews are ready.";
 
-        setTimeout(() => {
-          window.location.href = job.verify_url || ("/sync-verify/" + job.job_id);
-        }, 700);
+        // Point both preview players at the server-hosted copies used for
+        // synchronization, so what you see matches what was processed.
+        if (job.side_preview_url) {
+          const sideVideo = document.getElementById("sidePreview");
+          sideVideo.src = job.side_preview_url;
+          sideVideo.load();
+          sideVideo.style.display = "block";
+          document.getElementById("sideVideoWrap").classList.remove("empty");
+        }
+
+        if (job.back_preview_url) {
+          const backVideo = document.getElementById("backPreview");
+          backVideo.src = job.back_preview_url;
+          backVideo.load();
+          backVideo.style.display = "block";
+          document.getElementById("backVideoWrap").classList.remove("empty");
+        }
+
+        document.getElementById("previewNote").style.display = "block";
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Upload & Extract Frames";
+
+        // The backend already computes this once synchronization is done —
+        // take the user to the Sync Verification page instead of leaving
+        // them stranded on the upload screen.
+        if (job.verify_url) {
+          detail.textContent += " Opening sync verification…";
+          setTimeout(() => {
+            window.location.href = job.verify_url;
+          }, 900);
+        }
+
         return;
       } else if (job.status === "error") {
         title.textContent = "Synchronization failed";
