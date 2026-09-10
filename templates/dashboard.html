@@ -18,6 +18,9 @@
     --border: #dfe4de;
     --danger: #c0392b;
     --danger-bg: #fbeceb;
+    --warn: #93650a;
+    --warn-bg: #fdf3de;
+    --warn-border: #efd9a6;
   }
 
   * { box-sizing: border-box; }
@@ -396,6 +399,32 @@
     line-height: 1.55;
   }
 
+  /* ---- trajectory warnings ---- */
+
+  .warning-card {
+    border-color: var(--warn-border);
+    background: var(--warn-bg);
+    padding: 18px 20px;
+    margin-bottom: 20px;
+  }
+
+  .warning-title {
+    color: var(--warn);
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 9px;
+  }
+
+  .warning-message {
+    color: var(--warn);
+    font-size: 12.5px;
+    line-height: 1.5;
+    margin: 0 0 8px 0;
+  }
+
+  .warning-message:last-child { margin-bottom: 0; }
+
   /* ---- actions ---- */
 
   .actions {
@@ -612,8 +641,6 @@
 
 <body>
 
-<body>
-
 <div class="page-shell">
 
   <div class="topbar">
@@ -640,6 +667,16 @@
       </span>
     </div>
   </div>
+
+{% if warnings %}
+<div class="card warning-card">
+  <div class="eyebrow" style="color: var(--warn);">Trajectory warning</div>
+  <div class="warning-title">This result may not be reliable</div>
+  {% for w in warnings %}
+  <p class="warning-message">{{ w }}</p>
+  {% endfor %}
+</div>
+{% endif %}
 
 {% if error %}
 
@@ -747,7 +784,12 @@
         {% set depth_end_y_px = 1379 %}
         {% set left_y_px = 304 %}
         {% set right_y_px = 1301 %}
-        {% set court_width_m = 6.10 %}
+        {# left_y_px/right_y_px are calibrated to GCP1/GCP2 (Y = -2.59m /
+           +2.59m, the singles sidelines -- see calibrate_core.py), so the
+           real-world span those pixels represent is 2 x 2.59m = 5.18m, not
+           the 6.10m doubles width. Keep this in sync with the landing_in
+           half-width (court_half_width_m) above. #}
+        {% set court_width_m = 5.18 %}
         {% set court_depth_m = 6.70 %}
 
         {% set landing_px = origin_x_px + (landing_y / court_width_m) * (right_y_px - left_y_px) %}

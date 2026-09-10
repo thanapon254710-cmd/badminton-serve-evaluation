@@ -10,10 +10,52 @@ BACK_BOUNDARY_X = 6.70
 # treated as a high/long serve and scored against the back corner target.
 FRONT_BACK_SPLIT_X = (SHORT_SERVICE_LINE_X + BACK_BOUNDARY_X) / 2.0  # 4.34 m
 
+# Target lines used both for classification and for scoring. Each target
+# is the full width of the line at that depth -- from the center line
+# (Y=0.00) out to the right singles sideline (Y=2.59) -- not a single
+# corner point. A serve landing anywhere along that line is equally
+# "on target" depth-wise; only strays outside the [0, 2.59] width or off
+# the correct depth should cost points.
+TARGET_SHORT_FRONT = (
+    np.array([SHORT_SERVICE_LINE_X, 0.00]),
+    np.array([SHORT_SERVICE_LINE_X, 2.59]),
+)  # Short service line, center to sideline
+TARGET_HIGH_BACK = (
+    np.array([BACK_BOUNDARY_X, 0.00]),
+    np.array([BACK_BOUNDARY_X, 2.59]),
+)  # Deep baseline, center to sideline
+
 SERVE_TYPE_LABELS = {
     "short_front_corner": "Short serve",
     "high_back_corner": "High / long serve",
 }
+
+
+def _point_segment_distance(point, seg_start, seg_end):
+    """
+    Shortest distance from `point` to the line segment seg_start->seg_end
+    -- i.e. distance to the closest point actually ON the segment, not the
+    infinite line through it. For a landing point whose Y falls between
+    the segment's endpoints this reduces to pure depth error (perpendicular
+    distance to the line); for a landing point beyond either end it's the
+    ordinary distance to that nearest corner, so landing wide of the
+    sideline (or short of the center line) still costs accuracy points.
+    """
+    point = np.asarray(point, dtype=float)
+    seg_start = np.asarray(seg_start, dtype=float)
+    seg_end = np.asarray(seg_end, dtype=float)
+
+    seg_vec = seg_end - seg_start
+    seg_len_sq = float(np.dot(seg_vec, seg_vec))
+
+    if seg_len_sq < 1e-12:
+        # Degenerate (zero-length) segment -- fall back to point distance.
+        return float(np.linalg.norm(point - seg_start))
+
+    t = float(np.dot(point - seg_start, seg_vec) / seg_len_sq)
+    t = float(np.clip(t, 0.0, 1.0))
+    closest = seg_start + t * seg_vec
+    return float(np.linalg.norm(point - closest))
 
 
 def _find_landing_point(pts):
@@ -55,11 +97,22 @@ def _find_landing_point(pts):
     return pts[lowest_idx, :2]
 
 
+def classify_serve_type(landing_pt):
+    """
+    Decide whether a serve was aiming short (front line) or long/high
+    (back line) purely from where the shuttlecock actually landed --
+    whichever target line it landed closer to wins.
+    """
+    dist_short = _point_segment_distance(landing_pt, *TARGET_SHORT_FRONT)
+    dist_long = _point_segment_distance(landing_pt, *TARGET_HIGH_BACK)
+    return "short_front_corner" if dist_short <= dist_long else "high_back_corner"
+
+
 def evaluate_serve_performance(trajectory_data, serve_type="auto"):
     """
     Evaluates serve quality based on trajectory feature extraction.
-    Target 1: Short Serve Front Corner -> Target = (X: 1.98m, Y: 2.59m)
-    Target 2: Long Serve Back Corner  -> Target = (X: 6.70m, Y: 2.59m)
+    Target 1: Short serve -> the short service line, Y in [0.00m, 2.59m]
+    Target 2: Long serve  -> the back boundary line, Y in [0.00m, 2.59m]
 
     serve_type: "short_front_corner", "high_back_corner", or "auto"
     (default). "auto" classifies the serve itself from where the
@@ -96,7 +149,7 @@ def evaluate_serve_performance(trajectory_data, serve_type="auto"):
     deductions = []
 
     if serve_type == "short_front_corner":
-        target = np.array([1.98, 2.59])  # Front service line corner
+        target = TARGET_SHORT_FRONT
 
         # Rule A: Net Clearance Penalty (Short serve should graze the net, ~0.05m to 0.20m clearance)
         if net_clearance > 0.25:
@@ -107,14 +160,16 @@ def evaluate_serve_performance(trajectory_data, serve_type="auto"):
             base_score -= 50.0
             deductions.append("Shuttlecock hit the net: -50.0 pts")
 
-        # Rule B: Landing Accuracy Penalty
-        dist_err = np.linalg.norm(landing_pt - target)
+        # Rule B: Landing Accuracy Penalty -- distance to the short service
+        # line itself (clamped to the center-to-sideline width), not to a
+        # single corner point.
+        dist_err = _point_segment_distance(landing_pt, *target)
         pen_dist = dist_err * 25.0
         base_score -= pen_dist
-        deductions.append(f"Landing error ({dist_err:.2f}m from corner target): -{pen_dist:.1f} pts")
+        deductions.append(f"Landing error ({dist_err:.2f}m from short service line): -{pen_dist:.1f} pts")
 
     elif serve_type == "high_back_corner":
-        target = np.array([6.70, 2.59])  # Deep baseline corner
+        target = TARGET_HIGH_BACK
 
         # Rule A: High Serve Arc Requirement (Apex should be > 3.5 meters)
         if max_height < 3.5:
@@ -122,11 +177,13 @@ def evaluate_serve_performance(trajectory_data, serve_type="auto"):
             base_score -= pen
             deductions.append(f"Serve arc too flat (Peak height {max_height:.2f}m): -{pen:.1f} pts")
 
-        # Rule B: Landing Accuracy Penalty
-        dist_err = np.linalg.norm(landing_pt - target)
+        # Rule B: Landing Accuracy Penalty -- distance to the back boundary
+        # line itself (clamped to the center-to-sideline width), not to a
+        # single corner point.
+        dist_err = _point_segment_distance(landing_pt, *target)
         pen_dist = dist_err * 20.0
         base_score -= pen_dist
-        deductions.append(f"Landing error ({dist_err:.2f}m from back corner): -{pen_dist:.1f} pts")
+        deductions.append(f"Landing error ({dist_err:.2f}m from back boundary line): -{pen_dist:.1f} pts")
 
     final_score = float(np.clip(base_score, 0.0, 100.0))
 

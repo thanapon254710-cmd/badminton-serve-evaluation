@@ -5,8 +5,6 @@ import threading
 import time
 import uuid
 import json
-import subprocess
-import shutil
 from flask import Flask, render_template, request, redirect, url_for, jsonify, send_file
 
 from calibrate_core import solve_camera, WORLD_GCPS, GCP_LABELS, CAMERA_META
@@ -42,6 +40,33 @@ def get_evaluation_job(job_id):
         return dict(job) if job is not None else None
 
 
+def build_trajectory_warnings(diagnostics):
+    """
+    Turns the tracker's per-camera motion diagnostics into user-facing
+    warnings. A camera whose detected "shuttlecock" barely moves across
+    the whole clip is a strong sign the detector locked onto a
+    stationary object (a resting shuttle left on the court, the racket,
+    a bright spot on the net tape, etc.) instead of the shuttle actually
+    in flight -- so the resulting 3D trajectory and score shouldn't be
+    trusted at face value even though the pipeline still produced a
+    number.
+    """
+    warnings = []
+    labels = {"side": "Side camera", "back": "Back camera"}
+    for cam, label in labels.items():
+        if diagnostics.get(f"{cam}_suspect_static"):
+            frac = diagnostics.get(f"{cam}_motion_fraction", 0.0)
+            warnings.append(
+                f"{label}: the tracked shuttlecock barely moved across the clip "
+                f"(only {frac:.1%} of the frame). This usually means the detector "
+                f"locked onto a stationary object rather than the shuttle actually "
+                f"in flight. Re-check the source video for this camera -- if the "
+                f"shuttle isn't visibly moving in it, re-record that take before "
+                f"trusting this result."
+            )
+    return warnings
+
+
 def run_evaluation_job(job_id):
     try:
         update_evaluation_job(job_id, status="loading", message="Loading YOLO model…")
@@ -62,17 +87,20 @@ def run_evaluation_job(job_id):
                 message=f"Processing frame {current} / {total}",
             )
 
-        trajectory = tracker.process_videos(
+        trajectory, motion_diagnostics = tracker.process_videos(
             os.path.join(UPLOAD_VIDEO_DIR, "side_sync.mp4"),
             os.path.join(UPLOAD_VIDEO_DIR, "back_sync.mp4"),
             progress_callback=progress_callback,
         )
+
+        warnings = build_trajectory_warnings(motion_diagnostics)
 
         if len(trajectory) == 0:
             update_evaluation_job(
                 job_id,
                 status="error",
                 error="No trajectory points detected.",
+                warnings=warnings,
             )
             return
 
@@ -99,6 +127,8 @@ def run_evaluation_job(job_id):
             result_ready=True,
             trajectory_points=len(trajectory),
             report=report,
+            warnings=warnings,
+            motion_diagnostics=motion_diagnostics,
         )
 
     except Exception as exc:
@@ -319,186 +349,6 @@ def save_synchronized_outputs(match_result, output_root, job_id, side_fps, back_
     return len(back_paths), sync_fps
 
 
-def get_ffmpeg_path():
-    """Return the FFmpeg executable path, or raise a clear error."""
-    ffmpeg = shutil.which("ffmpeg")
-    if not ffmpeg:
-        raise RuntimeError(
-            "FFmpeg was not found in PATH. Install FFmpeg and restart Flask. "
-            "You can verify it with: ffmpeg -version"
-        )
-    return ffmpeg
-
-
-def needs_browser_transcode(input_path):
-    """
-    Return False only when we can positively confirm the source is already
-    an MP4 container with H.264 video + yuv420p pixel format — the exact
-    combination Chrome/Safari play natively, and the same combination
-    convert_to_browser_mp4() would produce anyway. Everything else
-    (HEVC/H.265 from iPhone, MOV containers, unusual pixel formats, or any
-    ffprobe failure) defaults to True so we never risk serving an
-    unplayable "preview".
-    """
-    if os.path.splitext(input_path)[1].lower() != ".mp4":
-        # A .mov extension can still contain H.264, but many iPhone .mov
-        # files are HEVC — and even H.264-in-.mov sometimes has moov-atom
-        # placement Chrome dislikes. Only trust the container when it's
-        # already .mp4.
-        return True
-
-    ffprobe = shutil.which("ffprobe")
-    if not ffprobe:
-        return True
-
-    try:
-        result = subprocess.run(
-            [
-                ffprobe, "-v", "error",
-                "-select_streams", "v:0",
-                "-show_entries", "stream=codec_name,pix_fmt",
-                "-of", "csv=p=0",
-                input_path,
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=15,
-        )
-
-        if result.returncode != 0:
-            return True
-
-        parts = [p.strip() for p in result.stdout.strip().split(",")]
-        if len(parts) < 2:
-            return True
-
-        codec_name, pix_fmt = parts[0], parts[1]
-        return not (codec_name == "h264" and pix_fmt == "yuv420p")
-
-    except Exception:
-        return True
-
-
-def convert_to_browser_mp4(input_path, output_path, job_id, label):
-    """
-    Produce a browser-compatible H.264/yuv420p/AAC MP4 preview copy.
-
-    The original upload is never modified. If the source already matches
-    that format (already H.264 yuv420p inside an .mp4 container), we just
-    copy the file instead of paying for a pointless FFmpeg re-encode.
-    """
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-
-    if not needs_browser_transcode(input_path):
-        update_upload_job(
-            job_id,
-            status="converting",
-            current=0,
-            total=0,
-            message=f"{label.capitalize()} video is already browser-compatible — copying…",
-        )
-        shutil.copy2(input_path, output_path)
-        return output_path
-
-    ffmpeg = get_ffmpeg_path()
-
-    update_upload_job(
-        job_id,
-        status="converting",
-        current=0,
-        total=0,
-        message=f"Converting {label} video to browser-compatible MP4…",
-    )
-
-    cmd = [
-        ffmpeg,
-        "-y",
-        "-i", input_path,
-        "-map", "0:v:0",
-        "-map", "0:a?",
-        "-c:v", "libx264",
-        # Fast browser-preview encode only.
-        # The original uploaded video is still used for CV processing.
-        "-preset", "ultrafast",
-        "-crf", "28",
-        "-pix_fmt", "yuv420p",
-        "-c:a", "aac",
-        "-b:a", "128k",
-        "-movflags", "+faststart",
-        output_path,
-    ]
-
-    # Capture FFmpeg output so errors can be surfaced in Flask instead of
-    # printing a large log to the browser.
-    result = subprocess.run(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-
-    if result.returncode != 0:
-        error_tail = result.stderr[-2500:].strip()
-        raise RuntimeError(
-            f"Could not convert {label} video to browser-compatible MP4.\n"
-            f"FFmpeg error:\n{error_tail}"
-        )
-
-    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
-        raise RuntimeError(
-            f"FFmpeg finished but did not create the {label} preview MP4."
-        )
-
-    return output_path
-
-
-
-def get_cached_preview_path(preview_job_id, camera):
-    """
-    Return the path to a browser-preview MP4 already produced by an earlier
-    /preview-upload call for this exact file, if one finished successfully.
-    """
-    if not preview_job_id:
-        return None
-
-    cached_path = os.path.join(
-        UPLOAD_VIDEO_DIR, f"preview_{preview_job_id}", f"{camera}_preview.mp4"
-    )
-
-    if os.path.exists(cached_path) and os.path.getsize(cached_path) > 0:
-        return cached_path
-
-    return None
-
-
-def ensure_browser_preview(input_path, output_path, job_id, label, preview_job_id):
-    """
-    Produce the browser-compatible preview MP4 for "side"/"back".
-
-    The moment a video is attached, the page already sent it to
-    /preview-upload and converted it once. Re-running FFmpeg on the same
-    source file here would just duplicate that work and slow down
-    "Upload & Extract Frames" for no benefit, so we reuse that output when
-    it's available and only fall back to converting from scratch if it
-    isn't (e.g. the live conversion failed or was skipped).
-    """
-    cached = get_cached_preview_path(preview_job_id, label)
-
-    if cached:
-        update_upload_job(
-            job_id,
-            status="converting",
-            message=f"Reusing already-converted {label} preview…",
-        )
-        shutil.copy2(cached, output_path)
-        return output_path
-
-    return convert_to_browser_mp4(input_path, output_path, job_id, label)
-
-
 def run_upload_job(job_id):
     try:
         job = get_upload_job(job_id)
@@ -508,32 +358,16 @@ def run_upload_job(job_id):
         side_path = job["side_path"]
         back_path = job["back_path"]
         work_dir = job["work_dir"]
-        side_preview_path = job["side_preview_path"]
-        back_preview_path = job["back_preview_path"]
-        side_preview_job_id = job.get("side_preview_job_id")
-        back_preview_job_id = job.get("back_preview_job_id")
-
         side_frames = os.path.join(work_dir, "side_frames")
         back_frames = os.path.join(work_dir, "back_frames")
         matched_root = os.path.join(work_dir, "matched")
 
         update_upload_job(
             job_id,
-            status="converting",
+            status="extracting",
             current=0,
             total=0,
-            message="Preparing browser-compatible video previews…",
-        )
-
-        # Convert only the copies used by the browser. Frame extraction and
-        # synchronization continue to use the original uploaded files.
-        # If the page already converted these clips live (as soon as they
-        # were attached), reuse that output instead of re-encoding.
-        ensure_browser_preview(
-            side_path, side_preview_path, job_id, "side", side_preview_job_id
-        )
-        ensure_browser_preview(
-            back_path, back_preview_path, job_id, "back", back_preview_job_id
+            message="Extracting video frames…",
         )
 
         side_count, side_fps = extract_video_frames(
@@ -615,151 +449,10 @@ def run_upload_job(job_id):
 
 
 
-@app.route("/preview-upload", methods=["POST"])
-def preview_upload():
-    """
-    Upload one selected video and immediately convert it to a
-    browser-compatible H.264 MP4 preview.
-
-    This endpoint is intentionally separate from /upload:
-    /upload still performs the full extraction + synchronization workflow.
-    """
-    camera = request.form.get("camera", "").strip().lower()
-    video = request.files.get("video")
-
-    if camera not in {"side", "back"}:
-        return jsonify({"ok": False, "error": "Camera must be 'side' or 'back'."}), 400
-
-    if video is None or not video.filename:
-        return jsonify({"ok": False, "error": "No video was attached."}), 400
-
-    preview_job_id = uuid.uuid4().hex
-    work_dir = os.path.join(UPLOAD_VIDEO_DIR, f"preview_{preview_job_id}")
-    os.makedirs(work_dir, exist_ok=True)
-
-    ext = os.path.splitext(video.filename)[1].lower() or ".mov"
-    original_path = os.path.join(work_dir, f"{camera}_original{ext}")
-    preview_path = os.path.join(work_dir, f"{camera}_preview.mp4")
-
-    video.save(original_path)
-
-    # The job must exist in upload_jobs BEFORE update_upload_job is called on
-    # it — update_upload_job only updates an existing entry, it never creates
-    # one. Without this insert, every subsequent update_upload_job() call for
-    # this preview_job_id silently does nothing, and
-    # /preview-upload-status/<preview_job_id> would 404 forever.
-    job = {
-        "job_id": preview_job_id,
-        "status": "converting",
-        "current": 0,
-        "total": 0,
-        "message": f"Converting {camera} video to browser-compatible MP4…",
-        "camera": camera,
-        "filename": video.filename,
-        "original_path": original_path,
-        "preview_path": preview_path,
-    }
-    with upload_jobs_lock:
-        upload_jobs[preview_job_id] = job
-
-    def convert_preview_job():
-        try:
-            convert_to_browser_mp4(
-                original_path,
-                preview_path,
-                preview_job_id,
-                camera,
-            )
-
-            update_upload_job(
-                preview_job_id,
-                status="done",
-                current=1,
-                total=1,
-                message="Browser preview is ready.",
-                preview_url=url_for(
-                    "browser_preview_file",
-                    preview_job_id=preview_job_id,
-                    camera=camera,
-                ),
-            )
-        except Exception as exc:
-            update_upload_job(
-                preview_job_id,
-                status="error",
-                message=str(exc),
-            )
-
-    threading.Thread(
-        target=convert_preview_job,
-        daemon=True,
-    ).start()
-
-    return jsonify({
-        "ok": True,
-        "preview_job_id": preview_job_id,
-        "camera": camera,
-        "filename": video.filename,
-    })
-
-
-@app.route("/preview-upload-status/<preview_job_id>")
-def preview_upload_status(preview_job_id):
-    job = get_upload_job(preview_job_id)
-    if job is None:
-        return jsonify({
-            "ok": False,
-            "error": "Preview job not found.",
-        }), 404
-
-    return jsonify({
-        "ok": True,
-        "status": job.get("status"),
-        "message": job.get("message", ""),
-        "preview_url": job.get("preview_url"),
-        "camera": job.get("camera"),
-        "filename": job.get("filename"),
-    })
-
-
-@app.route("/browser-preview-file/<preview_job_id>/<camera>")
-def browser_preview_file(preview_job_id, camera):
-    job = get_upload_job(preview_job_id)
-
-    if job is None:
-        return "Preview job not found.", 404
-
-    if camera not in {"side", "back"}:
-        return "Invalid camera.", 400
-
-    if job.get("camera") != camera:
-        return "Camera mismatch.", 400
-
-    path = job.get("preview_path")
-
-    if not path or not os.path.exists(path):
-        return "Browser preview is not ready.", 404
-
-    response = send_file(
-        path,
-        mimetype="video/mp4",
-        conditional=True,
-        max_age=0,
-    )
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
-    return response
-
-
 @app.route("/upload", methods=["POST"])
 def upload():
     side_video = request.files.get("side_video")
     back_video = request.files.get("back_video")
-
-    # These reference the /preview-upload conversions already done while
-    # the videos were being attached (see setVideoPreview in upload.html),
-    # so run_upload_job can reuse that output instead of re-encoding.
-    side_preview_job_id = request.form.get("side_preview_job_id") or None
-    back_preview_job_id = request.form.get("back_preview_job_id") or None
 
     if not side_video or not back_video:
         return jsonify({"error": "Please upload both side and back camera videos."}), 400
@@ -772,15 +465,13 @@ def upload():
     os.makedirs(work_dir, exist_ok=True)
 
     # Preserve the uploaded files in their original container/extension.
-    # The browser preview is a separate H.264 MP4 generated by FFmpeg.
-    side_ext = os.path.splitext(side_video.filename)[1].lower() or ".mov"
-    back_ext = os.path.splitext(back_video.filename)[1].lower() or ".mov"
+    # Videos are expected to already be browser-compatible MP4s, so this
+    # same file doubles as both the CV-processing source and the preview.
+    side_ext = os.path.splitext(side_video.filename)[1].lower() or ".mp4"
+    back_ext = os.path.splitext(back_video.filename)[1].lower() or ".mp4"
 
     side_path = os.path.join(work_dir, f"side_original{side_ext}")
     back_path = os.path.join(work_dir, f"back_original{back_ext}")
-
-    side_preview_path = os.path.join(work_dir, "side_preview.mp4")
-    back_preview_path = os.path.join(work_dir, "back_preview.mp4")
 
     side_video.save(side_path)
     back_video.save(back_path)
@@ -795,10 +486,6 @@ def upload():
         "error": None,
         "side_path": side_path,
         "back_path": back_path,
-        "side_preview_path": side_preview_path,
-        "back_preview_path": back_preview_path,
-        "side_preview_job_id": side_preview_job_id,
-        "back_preview_job_id": back_preview_job_id,
         "work_dir": work_dir,
         "side_filename": side_video.filename,
         "back_filename": back_video.filename,
@@ -844,11 +531,11 @@ def upload_status(job_id):
         "offset_confidence": job.get("offset_confidence"),
         "side_preview_url": (
             url_for("browser_preview", job_id=job_id, camera="side")
-            if os.path.exists(job.get("side_preview_path", "")) else None
+            if os.path.exists(job.get("side_path", "")) else None
         ),
         "back_preview_url": (
             url_for("browser_preview", job_id=job_id, camera="back")
-            if os.path.exists(job.get("back_preview_path", "")) else None
+            if os.path.exists(job.get("back_path", "")) else None
         ),
         "verify_url": (
             url_for("sync_verify_page", job_id=job_id)
@@ -859,20 +546,25 @@ def upload_status(job_id):
 
 @app.route("/browser-preview/<job_id>/<camera>")
 def browser_preview(job_id, camera):
-    """Serve the FFmpeg-generated H.264 MP4 preview for the upload page."""
+    """Serve the originally uploaded video for the upload page preview.
+
+    Videos are expected to already be browser-compatible MP4 (H.264/AAC)
+    before upload, so no server-side transcoding happens here — this just
+    streams the same file that CV processing uses.
+    """
     job = get_upload_job(job_id)
     if job is None:
         return "Upload job not found.", 404
 
     if camera == "side":
-        path = job.get("side_preview_path")
+        path = job.get("side_path")
     elif camera == "back":
-        path = job.get("back_preview_path")
+        path = job.get("back_path")
     else:
         return "Invalid camera.", 400
 
     if not path or not os.path.exists(path):
-        return "Browser preview is not ready.", 404
+        return "Video not found.", 404
 
     response = send_file(
         path,
@@ -1039,7 +731,11 @@ def evaluation_result(job_id):
         return "Evaluation job not found.", 404
 
     if job.get("status") == "error":
-        return render_template("dashboard.html", error=job.get("error"))
+        return render_template(
+            "dashboard.html",
+            error=job.get("error"),
+            warnings=job.get("warnings", []),
+        )
 
     if not job.get("done"):
         return redirect(url_for("calibrate_page"))
@@ -1048,6 +744,7 @@ def evaluation_result(job_id):
         "dashboard.html",
         report=job["report"],
         num_points=job.get("trajectory_points", 0),
+        warnings=job.get("warnings", []),
     )
 
 def save_trajectory_chart(trajectory, out_path):

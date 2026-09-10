@@ -28,7 +28,16 @@ class BadmintonTracker3D:
         self.P_back = calib['P_back']
 
     def detect_shuttlecock_2d(self, frame):
-        """Runs YOLOv8 inference to detect shuttlecock centroid (x, y)."""
+        """Runs YOLOv8 inference to detect shuttlecock centroid (x, y).
+
+        When more than one candidate box is found in a frame (e.g. a
+        stray/resting shuttle sitting on the court in addition to the
+        one actually in play), the previous implementation just
+        returned whichever box happened to come back first -- with no
+        regard for confidence. That made it easy to silently lock onto
+        the wrong object for some frames. We now keep the
+        highest-confidence detection instead.
+        """
         infer_frame = frame
         scale = 1.0
 
@@ -38,13 +47,58 @@ class BadmintonTracker3D:
             infer_frame = cv2.resize(frame, (self.infer_width, new_h))
 
         results = self.model(infer_frame, conf=0.20, verbose=False)
+        best_box = None
+        best_conf = -1.0
         for r in results:
             for box in r.boxes:
-                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                cx = float((x1 + x2) / 2.0) / scale
-                cy = float((y1 + y2) / 2.0) / scale
-                return np.array([cx, cy], dtype=np.float32)
-        return None
+                conf = float(box.conf[0]) if box.conf is not None else 0.0
+                if conf > best_conf:
+                    best_conf = conf
+                    best_box = box
+
+        if best_box is None:
+            return None
+
+        x1, y1, x2, y2 = best_box.xyxy[0].cpu().numpy()
+        cx = float((x1 + x2) / 2.0) / scale
+        cy = float((y1 + y2) / 2.0) / scale
+        return np.array([cx, cy], dtype=np.float32)
+
+    # A camera whose detected shuttlecock position moves less than this
+    # fraction of the frame diagonal across the whole clip is treated as
+    # "suspiciously static" -- a strong sign the detector locked onto a
+    # stationary object (a resting shuttle, the racket, a bright spot on
+    # the net tape, etc.) rather than the shuttle actually in flight.
+    MOTION_SPAN_MIN_FRACTION = 0.05
+
+    @staticmethod
+    def _motion_diagnostics_for_camera(points_2d, frame_diagonal_px):
+        """
+        Summarizes how much a single camera's detected 2D points moved
+        over the course of the clip, as a fraction of that camera's
+        frame diagonal (so it's comparable across different resolutions
+        / aspect ratios).
+        """
+        if len(points_2d) < 2 or frame_diagonal_px <= 0:
+            return {
+                "points_detected": len(points_2d),
+                "motion_px": 0.0,
+                "motion_fraction": 0.0,
+                "suspect_static": len(points_2d) > 0,
+            }
+
+        pts = np.array(points_2d, dtype=np.float32)
+        span_x = float(pts[:, 0].max() - pts[:, 0].min())
+        span_y = float(pts[:, 1].max() - pts[:, 1].min())
+        motion_px = float(np.hypot(span_x, span_y))
+        motion_fraction = motion_px / frame_diagonal_px
+
+        return {
+            "points_detected": len(points_2d),
+            "motion_px": motion_px,
+            "motion_fraction": motion_fraction,
+            "suspect_static": motion_fraction < BadmintonTracker3D.MOTION_SPAN_MIN_FRACTION,
+        }
 
     def triangulate_dlt(self, pt_side, pt_back):
         """
@@ -78,7 +132,18 @@ class BadmintonTracker3D:
             f"back frames: {total_back}, processing: {total_frames}"
         )
 
+        side_diag_px = float(np.hypot(
+            cap_side.get(cv2.CAP_PROP_FRAME_WIDTH),
+            cap_side.get(cv2.CAP_PROP_FRAME_HEIGHT),
+        ))
+        back_diag_px = float(np.hypot(
+            cap_back.get(cv2.CAP_PROP_FRAME_WIDTH),
+            cap_back.get(cv2.CAP_PROP_FRAME_HEIGHT),
+        ))
+
         trajectory_3d = []
+        side_points_2d = []
+        back_points_2d = []
         frame_idx = 0
         start_time = time.time()
 
@@ -91,6 +156,11 @@ class BadmintonTracker3D:
 
             pt_side = self.detect_shuttlecock_2d(frame_s)
             pt_back = self.detect_shuttlecock_2d(frame_b)
+
+            if pt_side is not None:
+                side_points_2d.append(pt_side)
+            if pt_back is not None:
+                back_points_2d.append(pt_back)
 
             if pt_side is not None and pt_back is not None:
                 pt_3d = self.triangulate_dlt(pt_side, pt_back)
@@ -132,4 +202,20 @@ class BadmintonTracker3D:
 
         cap_side.release()
         cap_back.release()
-        return trajectory_3d
+
+        side_diag_result = self._motion_diagnostics_for_camera(side_points_2d, side_diag_px)
+        back_diag_result = self._motion_diagnostics_for_camera(back_points_2d, back_diag_px)
+        diagnostics = {
+            "side_points_detected": side_diag_result["points_detected"],
+            "side_motion_px": side_diag_result["motion_px"],
+            "side_motion_fraction": side_diag_result["motion_fraction"],
+            "side_suspect_static": side_diag_result["suspect_static"],
+            "back_points_detected": back_diag_result["points_detected"],
+            "back_motion_px": back_diag_result["motion_px"],
+            "back_motion_fraction": back_diag_result["motion_fraction"],
+            "back_suspect_static": back_diag_result["suspect_static"],
+        }
+        if diagnostics["side_suspect_static"] or diagnostics["back_suspect_static"]:
+            print(f"[triangulate] WARNING -- suspiciously static camera(s): {diagnostics}")
+
+        return trajectory_3d, diagnostics
