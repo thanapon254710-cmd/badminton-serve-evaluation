@@ -196,106 +196,112 @@ def extract_kinetics(signals: List[FrameSignal]) -> np.ndarray:
     return np.column_stack((y_norm, x_norm, v_norm, a_norm))
 
 
-def align_strict_1to1(
+# Manual-click sync can be off by at most a couple of reaction-time frames.
+# We only ever search this many candidate starting offsets, right at the
+# beginning of the clips -- never across the whole video.
+MAX_START_LAG = 7
+
+
+def align_shorter_base(
     kin_a: np.ndarray,
-    kin_b: np.ndarray,
-    gap_penalty: Optional[float] = None
-) -> List[Tuple[int, int]]:
+    kin_b: np.ndarray
+) -> Tuple[List[Tuple[int, int]], int, str, float]:
     """
-    Finds a strict one-to-one, time-monotonic correspondence between the two
-    camera angles' shuttlecock kinetics.
+    Synchronize both views assuming they started together (same "1, 2,
+    click" count), give or take a few frames of manual-trigger reaction lag.
 
-    The previous version found ONE global cross-correlation offset between
-    the two clips and then paired frames with a fixed `i -> i - offset`
-    shift. That only works if both cameras run at the exact same frame rate
-    and never drop/duplicate a frame anywhere in the whole clip -- one
-    dropped frame partway through silently desyncs every pair after it,
-    which is what caused frames from the two angles to stop actually
-    matching the same real-world moment.
-
-    This version instead compares every frame in A against every frame in B
-    (via their kinetic feature vectors) and finds the lowest-cost monotonic
-    path through that similarity space -- a global sequence alignment
-    (Needleman-Wunsch style), the same idea used to align two time series
-    that may be offset AND locally stretched/shrunk relative to each other.
-    A frame is only left unmatched ("gapped") when pairing it would be worse
-    than skipping it, and the DP guarantees every index is used at most once
-    on each side, so there are never duplicate pairs.
+    Rather than sliding the shorter clip across the *entire* longer clip
+    (which risks locking onto a coincidentally-similar moment mid-rally),
+    we only test a small number of candidate starting offsets right at the
+    beginning -- MAX_START_LAG frames -- and pick whichever gives the
+    closest kinetic match. Once that start is chosen, every frame of the
+    shorter video is paired 1-to-1 with one consecutive frame of the longer
+    video, and any leftover frames at the tail of the longer video are
+    ignored.
     """
     len_a, len_b = len(kin_a), len(kin_b)
 
     if len_a == 0 or len_b == 0:
-        return []
+        return [], 0, "none", 0.0
 
-    # Pairwise distance between every (frame_a, frame_b) kinetic vector.
-    diff = kin_a[:, None, :] - kin_b[None, :, :]
-    cost = np.sqrt(np.sum(diff ** 2, axis=2))  # shape (len_a, len_b)
-
-    if gap_penalty is None:
-        # How bad a "skip" has to be relative to each frame's best possible
-        # match before the aligner prefers to pair it up anyway. Tune this
-        # up if you see too many frames being skipped, or down if you see
-        # frames being force-matched to a clearly wrong partner.
-        best_per_row = np.min(cost, axis=1)
-        gap_penalty = float(np.median(best_per_row) * 2.0 + 1e-6)
-
-    dp = np.full((len_a + 1, len_b + 1), np.inf, dtype=float)
-    dp[0, 0] = 0.0
-    for i in range(1, len_a + 1):
-        dp[i, 0] = dp[i - 1, 0] + gap_penalty
-    for j in range(1, len_b + 1):
-        dp[0, j] = dp[0, j - 1] + gap_penalty
-
-    # 0 = diagonal (match), 1 = skip a-frame, 2 = skip b-frame
-    back = np.zeros((len_a + 1, len_b + 1), dtype=np.uint8)
-
-    for i in range(1, len_a + 1):
-        row_cost = cost[i - 1]
-        dp_prev_row = dp[i - 1]
-        dp_row = dp[i]
-        for j in range(1, len_b + 1):
-            match = dp_prev_row[j - 1] + row_cost[j - 1]
-            skip_a = dp_prev_row[j] + gap_penalty
-            skip_b = dp_row[j - 1] + gap_penalty
-
-            best = match
-            move = 0
-            if skip_a < best:
-                best = skip_a
-                move = 1
-            if skip_b < best:
-                best = skip_b
-                move = 2
-
-            dp_row[j] = best
-            back[i, j] = move
-
-    matches: List[Tuple[int, int]] = []
-    i, j = len_a, len_b
-    while i > 0 or j > 0:
-        if i > 0 and j > 0 and back[i, j] == 0:
-            matches.append((i - 1, j - 1))
-            i -= 1
-            j -= 1
-        elif i > 0 and (j == 0 or back[i, j] == 1):
-            i -= 1
-        else:
-            j -= 1
-    matches.reverse()
-
-    if matches:
-        offsets = [i - j for i, j in matches]
-        print(
-            f"[OK] Aligned {len(matches)} unique 1-to-1 pairs via monotonic "
-            f"kinetic alignment (median frame lag: {int(np.median(offsets))}, "
-            f"gap_penalty={gap_penalty:.4f})"
-        )
+    if len_a <= len_b:
+        short, long = kin_a, kin_b
+        short_is_a = True
+        short_name = "folder_a"
     else:
-        print("[WARN] No confident matches found between the two clips.")
+        short, long = kin_b, kin_a
+        short_is_a = False
+        short_name = "folder_b"
 
-    return matches
+    n_short = len(short)
+    n_long = len(long)
+    max_start = n_long - n_short
 
+    # Only look at the first MAX_START_LAG possible starting positions
+    # (or fewer, if the clips are close enough in length that fewer exist).
+    search_limit = min(max_start, MAX_START_LAG)
 
+    weights = np.array([0.15, 0.05, 0.50, 0.30], dtype=float)
+    scores = np.full(search_limit + 1, np.inf, dtype=float)
+
+    for start_idx in range(search_limit + 1):
+        window = long[start_idx:start_idx + n_short]
+        diff = short - window
+
+        weighted_sq = np.sum((diff ** 2) * weights, axis=1)
+        frame_cost = np.sqrt(weighted_sq)
+
+        frame_cost = np.sort(frame_cost)
+        trim = int(len(frame_cost) * 0.10)
+
+        if len(frame_cost) > 2 * trim and trim > 0:
+            trimmed = frame_cost[trim:-trim]
+        else:
+            trimmed = frame_cost
+
+        scores[start_idx] = (
+            0.65 * float(np.median(trimmed))
+            + 0.35 * float(np.mean(trimmed))
+        )
+
+    best_start = int(np.argmin(scores))
+    best_score = float(scores[best_start])
+
+    if len(scores) > 1:
+        sorted_scores = np.sort(scores)
+        second_score = float(sorted_scores[1])
+        separation = max(0.0, (second_score - best_score) / (second_score + 1e-6))
+        confidence = float(np.clip(separation * 5.0, 0.0, 1.0))
+    else:
+        confidence = 1.0
+
+    pairs: List[Tuple[int, int]] = []
+    for k in range(n_short):
+        if short_is_a:
+            pairs.append((k, best_start + k))
+        else:
+            pairs.append((best_start + k, k))
+
+    # Offset is always expressed as: frame_a - frame_b, matching app.py.
+    offset = pairs[0][0] - pairs[0][1] if pairs else 0
+
+    print(
+        f"[OK] Start-aligned synchronization: "
+        f"{short_name} is shorter ({n_short} frames); "
+        f"longer video has {n_long} frames"
+    )
+    print(
+        f"[OK] Searched start lag 0..{search_limit} frames; "
+        f"best start={best_start} (offset A-B={offset:+d} frames), "
+        f"confidence={confidence:.3f}"
+    )
+    print(
+        f"[OK] Paired all {n_short} shorter-video frames; "
+        f"ignored {n_long - n_short - best_start} leftover frames from the "
+        f"longer video"
+    )
+
+    return pairs, offset, "start_aligned_small_lag_search", confidence
 # ----------------------------------------------------------------------------
 # 3. Main Matching Process
 # ----------------------------------------------------------------------------
@@ -308,12 +314,18 @@ def match_badminton(folder_a: str, folder_b: str) -> dict:
     print(f"[2/3] Extracting shuttlecock trajectory from Folder B: {folder_b}")
     sig_b, files_b = extract_trajectory(folder_b)
 
-    print("[3/3] Matching using monotonic kinetic alignment (strict 1-to-1)...")
+    print(
+        "[3/3] Synchronizing with the shorter video as the complete "
+        "time base..."
+    )
 
     kin_a = extract_kinetics(sig_a)
     kin_b = extract_kinetics(sig_b)
 
-    path = align_strict_1to1(kin_a, kin_b)
+    path, offset, offset_method, offset_confidence = align_shorter_base(
+        kin_a,
+        kin_b,
+    )
 
     matches = [
         {"file_a": files_a[i], "file_b": files_b[j]}
@@ -323,7 +335,14 @@ def match_badminton(folder_a: str, folder_b: str) -> dict:
     return {
         "folder_a": folder_a,
         "folder_b": folder_b,
-        "matches": matches
+        "matches": matches,
+        "offset": offset,
+        "offset_method": offset_method,
+        "offset_confidence": offset_confidence,
+        "shorter_video": "folder_a" if len(files_a) <= len(files_b) else "folder_b",
+        "longer_video": "folder_b" if len(files_a) <= len(files_b) else "folder_a",
+        "shorter_frame_count": min(len(files_a), len(files_b)),
+        "ignored_longer_frames": abs(len(files_a) - len(files_b)),
     }
 
 
@@ -331,7 +350,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Badminton Precision 1-to-1 Matcher"
+        description="Badminton shorter-video-base synchronization"
     )
     parser.add_argument("folder_a", help="Path to Folder A")
     parser.add_argument("folder_b", help="Path to Folder B")

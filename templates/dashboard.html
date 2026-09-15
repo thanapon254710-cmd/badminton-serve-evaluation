@@ -543,6 +543,36 @@
     object-fit: contain;
   }
 
+  .preferred-drop-box {
+    position: absolute;
+    border: 2px solid var(--court);
+    background: rgba(31,107,58,.08);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .preferred-box-label {
+    position: absolute;
+    top: 6px;
+    left: 7px;
+    padding: 4px 6px;
+    border-radius: 5px;
+    background: rgba(255,255,255,.92);
+    border: 1px solid var(--court);
+    color: var(--court);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .serve-split-line {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    border-top: 2px dashed var(--line);
+  }
+
   .landing-marker {
     position: absolute;
     width: 1px;
@@ -718,16 +748,19 @@
   {% set landing_x = report.landing_coordinate_m[0] %}
   {% set landing_y = report.landing_coordinate_m[1] %}
   {#
-    Court bounds, in the same net-centre-origin metres used everywhere
-    else (X = depth from the net, Y = lateral offset from the centre
-    line). The calibration only models the singles sidelines (GCP2/GCP4/
-    GCP6 at Y = 2.59m -- see calibrate_core.py), so "IN" must be checked
-    against that 2.59m half-width, not the wider 3.05m doubles sideline
-    the previous check used. Using the wider bound made shots that were
-    genuinely wide of the singles sideline still show as "IN".
+    IN/OUT comes from evaluator.py's preferred drop box:
+      X = 1.98 .. 6.70 m
+      Y = 0.00 .. 2.59 m
+
+    Automatic serve classification is separate:
+      Short:  X = 1.98 .. 4.72 m
+      High:   X = 4.73 .. 6.70 m
+
+    Landing score then rewards proximity to the serve-specific GCP
+    endpoints rather than treating the centre of the GCP line as equally
+    valuable.
   #}
-  {% set court_half_width_m = 2.59 %}
-  {% set landing_in = (landing_x >= 0 and landing_x <= 6.70 and landing_y >= -court_half_width_m and landing_y <= court_half_width_m) %}
+  {% set landing_in = (report.landing_status == "IN") %}
 
 <div class="metrics">
   <div class="card metric">
@@ -754,7 +787,13 @@
         ({{ 'IN' if landing_in else 'OUT' }})
       </span>
     </div>
-    <div class="metric-sub">metres from net centre</div>
+    <div class="metric-sub">
+      {% if report.landing_status_reason %}
+        {{ report.landing_status_reason }}
+      {% else %}
+        metres from net centre
+      {% endif %}
+    </div>
   </div>
 </div>
 
@@ -774,6 +813,10 @@
           class="top-view-image"
         >
 
+        {# Preferred drop box overlay:
+           X = 1.98..6.70, Y = 0.00..2.59.
+           Using the same pixel mapping as the landing marker keeps the
+           displayed boundary consistent with the evaluator coordinates. #}
         {# Calibration-reference mapping for top_view_spot.jpg (1614x1534):
            GCP0 = origin (X=0, Y=0), GCP3 ~= 3.34 m depth,
            GCP5 ~= 6.70 m depth, with GCP1/GCP2 spanning the lateral court. #}
@@ -787,13 +830,37 @@
         {# left_y_px/right_y_px are calibrated to GCP1/GCP2 (Y = -2.59m /
            +2.59m, the singles sidelines -- see calibrate_core.py), so the
            real-world span those pixels represent is 2 x 2.59m = 5.18m, not
-           the 6.10m doubles width. Keep this in sync with the landing_in
-           half-width (court_half_width_m) above. #}
+           the 6.10m doubles width. This only affects where the dot is
+           drawn on the image; IN/OUT itself comes from
+           report.landing_status, computed in evaluator.py. #}
         {% set court_width_m = 5.18 %}
         {% set court_depth_m = 6.70 %}
 
         {% set landing_px = origin_x_px + (landing_y / court_width_m) * (right_y_px - left_y_px) %}
         {% set landing_py = origin_y_px + (landing_x / court_depth_m) * (depth_end_y_px - origin_y_px) %}
+
+        {% set preferred_x_px = origin_x_px %}
+        {% set preferred_y_px = origin_y_px + (1.98 / court_depth_m) * (depth_end_y_px - origin_y_px) %}
+        {% set preferred_w_px = right_y_px - origin_x_px %}
+        {% set preferred_h_px = depth_end_y_px - preferred_y_px %}
+        {% set serve_split_y_px = origin_y_px + (4.725 / court_depth_m) * (depth_end_y_px - origin_y_px) %}
+
+        <div
+          class="preferred-drop-box"
+          style="
+            left: {{ (preferred_x_px / image_w * 100)|round(3) }}%;
+            top: {{ (preferred_y_px / image_h * 100)|round(3) }}%;
+            width: {{ (preferred_w_px / image_w * 100)|round(3) }}%;
+            height: {{ (preferred_h_px / image_h * 100)|round(3) }}%;
+          "
+          aria-label="Preferred drop box: X 1.98 to 6.70 metres, Y 0.00 to 2.59 metres"
+        >
+          <span class="preferred-box-label">PREFERRED DROP BOX · IN</span>
+          <span
+            class="serve-split-line"
+            style="top: {{ ((serve_split_y_px - preferred_y_px) / preferred_h_px * 100)|round(3) }}%;"
+          ></span>
+        </div>
 
         <div
           class="landing-marker {{ 'landing-in' if landing_in else 'landing-out' }}"
@@ -814,7 +881,7 @@
 
   <div class="card deductions-card">
     <div class="card-heading">
-      <h2>Scoring deductions</h2>
+      <h2>Scoring deductions <strong>({{ report.serve_type_label }})</strong></h2>
     </div>
 
     {% if report.deductions %}

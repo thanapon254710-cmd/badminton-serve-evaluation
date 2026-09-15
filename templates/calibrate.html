@@ -359,7 +359,7 @@
   .cam-stage.viewonly .view-only-note { display: inline-block; }
 
   .evaluate-panel {
-    margin-top: 200px;
+    margin-top: 150px;
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: 12px;
@@ -571,13 +571,12 @@
     <aside class="reference-panel">
       <div class="reference-card" id="guideTop">
         <h4>Top camera reference</h4>
-        <img src="/static/guide/top_view_spot.jpg" alt="Top camera reference">
+        <img src="/static/guide/top_view.jpg" alt="Top camera reference">
       </div>
 
       <div class="evaluate-panel">
         <div id="evaluateForm">
           <h3>Run evaluation</h3>
-          <p class="lead">Serve type (short vs. high/long) is detected automatically from where the shuttle lands.</p>
           <div class="evaluate-row">
             <button class="btn btn-primary" id="evaluateBtn" disabled>Run Evaluation</button>
           </div>
@@ -899,10 +898,6 @@ function setProgressBar(current, total, fps, detected, message) {
     fill.classList.add("indeterminate");
     count.textContent = message || "Starting…";
   }
-
-  fpsEl.textContent =
-    (fps && fps > 0 ? `${fps.toFixed(2)} fps` : "") +
-    (detected !== undefined ? ` · ${detected} points` : "");
 }
 
 async function pollProgress() {
