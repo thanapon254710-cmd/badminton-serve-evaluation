@@ -153,6 +153,12 @@ def index():
 upload_jobs = {}
 upload_jobs_lock = threading.Lock()
 
+# Track the most recently *completed* synchronization job. This app is
+# single-session (one calibration in progress at a time), so the calibrate
+# page doesn't carry a job_id of its own — but the debug "Check
+# Synchronization" link still needs to know which job's frame pairs to show.
+latest_synced_job_id = None
+
 
 def update_upload_job(job_id, **updates):
     with upload_jobs_lock:
@@ -436,6 +442,9 @@ def run_upload_job(job_id):
             offset_confidence=result.get("offset_confidence"),
         )
 
+        global latest_synced_job_id
+        latest_synced_job_id = job_id
+
     except Exception as exc:
         import traceback
         traceback.print_exc()
@@ -653,7 +662,8 @@ def calibrate_page():
                             num_points=len(WORLD_GCPS),
                             gcp_labels=GCP_LABELS,
                             side_meta=CAMERA_META["side"],
-                            back_meta=CAMERA_META["back"])
+                            back_meta=CAMERA_META["back"],
+                            sync_job_id=latest_synced_job_id)
 
 @app.route("/save_calibration", methods=["POST"])
 def save_calibration():

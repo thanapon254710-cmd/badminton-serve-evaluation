@@ -211,6 +211,41 @@
 
   #status .role { color: var(--muted); }
 
+  .btn-debug {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 12.5px;
+    color: var(--muted);
+    background: var(--card);
+    border: 1px dashed var(--border);
+    border-radius: 7px;
+    padding: 8px 12px;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    white-space: nowrap;
+    flex: none;
+    transition: border-color .12s, color .12s;
+  }
+
+  .btn-debug:hover {
+    border-color: var(--court-light);
+    color: var(--ink);
+  }
+
+  .debug-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--muted);
+    background: var(--court-dim);
+    padding: 2px 6px;
+    border-radius: 999px;
+  }
+
   .controls {
     margin: 0 0 10px 0;
     display: flex;
@@ -552,16 +587,12 @@
         <span class="step-number">1</span> Upload
       </span>
       <span class="step-line"></span>
-      <span class="step done">
-        <span class="step-number">2</span> Verify sync
-      </span>
-      <span class="step-line"></span>
       <span class="step active">
-        <span class="step-number">3</span> Calibrate
+        <span class="step-number">2</span> Calibrate
       </span>
       <span class="step-line"></span>
       <span class="step">
-        <span class="step-number">4</span> Results
+        <span class="step-number">3</span> Dashboard
       </span>
     </div>
   </div>
@@ -598,7 +629,7 @@
 
           <div id="progressDone">
             <p class="lead" style="margin-bottom:10px;">Evaluation complete.</p>
-            <a class="btn btn-primary" id="resultsLink" href="/results">View results</a>
+            <a class="btn btn-primary" id="resultsLink" href="/results">View dashboard</a>
           </div>
         </div>
       </div>
@@ -611,6 +642,11 @@
           Side camera: Point 1 of 7
           <span class="role"></span>
         </div>
+        {% if sync_job_id %}
+        <a class="btn-debug" id="syncCheckBtn" href="/sync-verify/{{ sync_job_id }}" target="_blank" rel="noopener" title="Debug tool — not required to calibrate">
+          Check Synchronization
+        </a>
+        {% endif %}
       </div>
 
       <div class="controls">

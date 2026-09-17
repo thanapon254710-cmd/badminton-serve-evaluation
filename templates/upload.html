@@ -316,15 +316,11 @@
     </span>
     <span class="step-line"></span>
     <span class="step">
-      <span class="step-number">2</span> Verify sync
+      <span class="step-number">2</span> Calibrate
     </span>
     <span class="step-line"></span>
     <span class="step">
-      <span class="step-number">3</span> Calibrate
-    </span>
-    <span class="step-line"></span>
-    <span class="step">
-      <span class="step-number">4</span> Results
+      <span class="step-number">3</span> Results
     </span>
   </div>
 </div>
@@ -420,8 +416,8 @@
     </div>
 
     <div class="preview-note" id="previewNote">
-      Preview shows your original uploaded video. The same file is used
-      directly for frame extraction and synchronization.
+      Preview shows your uploaded video. Synchronization runs automatically after upload,
+      then the calibration page opens.
     </div>
   </section>
 </div>
@@ -673,15 +669,17 @@ function pollUploadJob(statusUrl) {
         submitBtn.disabled = false;
         submitBtn.textContent = "Upload & Extract Frames";
 
-        // The backend already computes this once synchronization is done —
-        // take the user to the Sync Verification page instead of leaving
-        // them stranded on the upload screen.
-        if (job.verify_url) {
-          detail.textContent += " Opening sync verification…";
-          setTimeout(() => {
-            window.location.href = job.verify_url;
-          }, 900);
-        }
+        // Synchronization is already completed automatically in the backend.
+        // The normal user workflow is:
+        // Upload → Calibrate → Results.
+        //
+        // Sync Verification is intentionally NOT opened here. It remains
+        // available from the "Check Synchronization" debug button on the
+        // calibration page.
+        detail.textContent += " Opening calibration…";
+        setTimeout(() => {
+          window.location.href = "/calibrate";
+        }, 900);
 
         return;
       } else if (job.status === "error") {

@@ -115,6 +115,32 @@
     background: var(--border);
   }
 
+  .debug-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .debug-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--muted);
+    background: var(--court-dim);
+    border-radius: 999px;
+    padding: 6px 11px;
+    white-space: nowrap;
+  }
+
+  .debug-header .btn {
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+  }
+
   .content {
     width: 100%;
     max-width: 1500px;
@@ -351,22 +377,9 @@
       Sync Verification
     </a>
 
-    <div class="steps" aria-label="Evaluation progress">
-      <span class="step done">
-        <span class="step-number">1</span> Upload
-      </span>
-      <span class="step-line"></span>
-      <span class="step active">
-        <span class="step-number">2</span> Verify sync
-      </span>
-      <span class="step-line"></span>
-      <span class="step">
-        <span class="step-number">3</span> Calibrate
-      </span>
-      <span class="step-line"></span>
-      <span class="step">
-        <span class="step-number">4</span> Results
-      </span>
+    <div class="debug-header">
+      <span class="debug-badge">Debug tool &middot; optional</span>
+      <a class="btn" href="/calibrate">&larr; Back to calibration</a>
     </div>
   </div>
 
@@ -432,7 +445,7 @@
           <button class="btn" id="backBtn" type="button">← Re-upload</button>
           <div class="actions-right">
             <button class="btn" id="confirmBtn" type="button">
-              Continue to calibration
+              Back to calibration
             </button>
           </div>
         </div>
@@ -583,7 +596,7 @@ document.getElementById("confirmBtn").addEventListener("click", async () => {
     errorEl.textContent = err.message || "Could not continue.";
     errorEl.style.display = "block";
     btn.disabled = false;
-    btn.textContent = "✓ Sync looks correct — Continue to calibration";
+    btn.textContent = "✓ Looks good — Back to calibration";
   }
 });
 
