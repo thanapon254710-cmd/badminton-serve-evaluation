@@ -2,906 +2,273 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Serve Evaluation · Results</title>
+<title>Serve Evaluator · Results</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --court: #1f6b3a;
-    --court-light: #2e8b4f;
-    --court-dim: #e5efe7;
-    --line: #e8b13a;
-    --ink: #1c2521;
-    --muted: #5c6b62;
-    --paper: #f7f8f4;
-    --card: #ffffff;
-    --border: #dfe4de;
-    --danger: #c0392b;
-    --danger-bg: #fbeceb;
-    --warn: #93650a;
-    --warn-bg: #fdf3de;
-    --warn-border: #efd9a6;
-  }
-
-  * { box-sizing: border-box; }
-
-  html, body {
-    width: 100%;
-    min-height: 100%;
-    margin: 0;
-  }
-
-  body {
-    font-family: 'Inter', sans-serif;
-    background: var(--paper);
-    color: var(--ink);
-    padding: 0;
-  }
-
-  .page-shell {
-    width: 100%;
-    min-height: 100vh;
-    padding: 28px 42px 36px;
-  }  
-
-  h1, h2, h3, h4 {
-    font-family: 'Space Grotesk', sans-serif;
-  }
-
-  h1 {
-    font-size: 30px;
-    line-height: 1.15;
-    letter-spacing: -0.02em;
-    margin: 0 0 7px;
-  }
-
-  h2 {
-    font-size: 17px;
-    margin: 0;
-  }
-
-  h3 {
-    font-size: 14px;
-    margin: 0 0 14px;
-  }
-
-  p { margin: 0; }
-
-  .eyebrow {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-    color: var(--court);
-    text-transform: uppercase;
-    letter-spacing: .08em;
-    margin-bottom: 10px;
-  }
-
-  .subtitle {
-    color: var(--muted);
-    font-size: 14.5px;
-    line-height: 1.55;
-  }
-
-  .topbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 20px;
-    margin-bottom: 14px;
-  }
-
-  .brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    color: var(--ink);
-    text-decoration: none;
-    font-family: 'Space Grotesk', sans-serif;
-    font-weight: 700;
-  }
-
-  .brand-mark {
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    background: var(--court);
-    color: #fff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 12px;
-  }
-
-  .steps {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    color: var(--muted);
-    font-size: 12px;
-    white-space: nowrap;
-  }
-
-  .step {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .step-number {
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    border: 1px solid var(--border);
-    background: var(--card);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-  }
-
-  .step.done .step-number,
-  .step.active .step-number {
-    background: var(--court);
-    color: #fff;
-    border-color: var(--court);
-  }
-
-  .step.active {
-    color: var(--ink);
-    font-weight: 900;
-  }
-
-  .step-line {
-    width: 22px;
-    height: 1px;
-    background: var(--border);
-  }
-
-  /* ---- cards ---- */
-
-  .card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    box-shadow: 0 1px 2px rgba(0,0,0,.035);
-  }
-
-  .hero {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 250px;
-    gap: 28px;
-    padding: 17px;
-    align-items: center;
-  }
-
-  .hero-copy {
-    min-width: 0;
-  }
-
-  .result-label {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: .07em;
-    color: var(--muted);
-    margin-bottom: 8px;
-  }
-
-  .hero-copy .subtitle {
-    max-width: 680px;
-  }
-
-  .score-box {
-    border-left: 1px solid var(--border);
-    padding-left: 26px;
-    text-align: center;
-  }
-
-  .score-ring {
-    width: 116px;
-    height: 116px;
-    border-radius: 50%;
-    margin: 0 auto 8px;
-    background:
-      conic-gradient(
-        var(--court) calc(var(--score) * 1%),
-        var(--court-dim) 0
-      );
-    display: grid;
-    place-items: center;
-  }
-
-  .score-ring::before {
-    content: "";
-    width: 90px;
-    height: 90px;
-    border-radius: 50%;
-    background: var(--card);
-    grid-area: 1 / 1;
-  }
-
-  .score-value {
-    grid-area: 1 / 1;
-    position: relative;
-    z-index: 1;
-    font-family: 'Space Grotesk', sans-serif;
-    font-size: 28px;
-    font-weight: 700;
-    letter-spacing: -.03em;
-  }
-
-  .score-unit {
-    color: var(--muted);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    margin-top: -4px;
-  }
-
-  /* ---- metric grid ---- */
-
-  .section-label {
-    font-family: 'JetBrains Mono', monospace;
-    color: var(--muted);
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: .08em;
-    margin: 5px 0 9px 2px;
-  }
-
-  .metrics {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
-  }
-
-  .metric {
-    padding: 13px 16px;
-    min-height: 88px;
-  }
-
-  .metric-label {
-    color: var(--muted);
-    font-size: 12px;
-    margin-bottom: 7px;
-    font-weight: 700;
-  }
-
-  .metric-value {
-    font-family: 'Space Grotesk', sans-serif;
-    font-size: 22px;
-    font-weight: 700;
-    letter-spacing: -.02em;
-  }
-
-  .metric-unit {
-    color: var(--muted);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    margin-left: 3px;
-  }
-
-  .metric-sub {
-    color: var(--muted);
-    font-size: 11px;
-    margin-top: 5px;
-  }
-
-  /* ---- lower content ---- */
-
-  .content-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1.45fr) minmax(280px, .75fr);
-    gap: 14px;
-    align-items: start;
-  }
-
-  .chart-card,
-  .deductions-card {
-    padding: 15px;
-  }
-
-  .card-heading {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 14px;
-    margin-bottom: 4px;
-  }
-
-  .card-heading .hint {
-    font-size: 11px;
-    color: var(--muted);
-  }
-
-  .chart-frame {
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    background: #fbfcfa;
-    padding: 5px;
-  }
-
-  .chart-frame img {
-    display: block;
-    width: 100%;
-    height: auto;
-    max-height: 300px;
-    object-fit: contain;
-    border-radius: 5px;
-  }
-
-  .deduction {
-    border: 1px solid #f0d1ce;
-    background: var(--danger-bg);
-    color: var(--danger);
-    border-radius: 8px;
-    padding: 11px 12px;
-    font-size: 12.5px;
-    line-height: 1.45;
-    margin-bottom: 8px;
-  }
-
-  .deduction:last-child { margin-bottom: 0; }
-
-  .no-deductions {
-    border: 1px solid var(--border);
-    background: var(--court-dim);
-    color: var(--court);
-    border-radius: 8px;
-    padding: 12px;
-    font-size: 12.5px;
-  }
-
-  /* ---- landing coordinate ---- */
-
-  .coordinate {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 16px 18px;
-    margin-top: 12px;
-    background: var(--court-dim);
-    border-radius: 9px;
-  }
-
-  .coordinate-label {
-    font-size: 12px;
-    color: var(--muted);
-  }
-
-  .coordinate-value {
-    font-family: 'JetBrains Mono', monospace;
-    color: var(--court);
-    font-size: 13px;
-    font-weight: 500;
-  }
-
-  /* ---- error ---- */
-
-  .error-card {
-    padding: 24px;
-    border-color: #f0d1ce;
-  }
-
-  .error-title {
-    color: var(--danger);
-    font-family: 'Space Grotesk', sans-serif;
-    font-size: 20px;
-    font-weight: 700;
-    margin-bottom: 7px;
-  }
-
-  .error-message {
-    color: var(--muted);
-    font-size: 13.5px;
-    line-height: 1.55;
-  }
-
-  /* ---- trajectory warnings ---- */
-
-  .warning-card {
-    border-color: var(--warn-border);
-    background: var(--warn-bg);
-    padding: 18px 20px;
-    margin-bottom: 20px;
-  }
-
-  .warning-title {
-    color: var(--warn);
-    font-family: 'Space Grotesk', sans-serif;
-    font-size: 15px;
-    font-weight: 700;
-    margin-bottom: 9px;
-  }
-
-  .warning-message {
-    color: var(--warn);
-    font-size: 12.5px;
-    line-height: 1.5;
-    margin: 0 0 8px 0;
-  }
-
-  .warning-message:last-child { margin-bottom: 0; }
-
-  /* ---- actions ---- */
-
-  .actions {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-top: 22px;
-  }
-
-  .action-group {
-    display: flex;
-    gap: 9px;
-    flex-wrap: wrap;
-    margin-top: 100px;
-  }
-
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    text-decoration: none;
-    border-radius: 8px;
-    padding: 10px 15px;
-    font-family: 'Inter', sans-serif;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background .12s, border-color .12s;
-  }
-
-  .btn-primary {
-    background: var(--court);
-    color: #fff;
-    border: 1px solid var(--court);
-  }
-
-  .btn-primary:hover { background: var(--court-light); border-color: var(--court-light); }
-
-  .btn-secondary {
-    background: var(--card);
-    color: var(--ink);
-    border: 1px solid var(--border);
-  }
-
-  .btn-secondary:hover {
-    border-color: var(--court-light);
-    color: var(--court);
-  }
-
-  .footer-note {
-    color: var(--muted);
-    font-size: 11px;
-    font-family: 'JetBrains Mono', monospace;
-  }
-
-  @media (max-width: 901px) {
-    body { padding: 25px 16px 45px; }
-
-    .topbar {
-      align-items: flex-start;
-      flex-direction: column;
-    }
-
-    .hero {
-      grid-template-columns: 1fr;
-    }
-
-    .score-box {
-      border-left: 0;
-      border-top: 1px solid var(--border);
-      padding: 20px 0 0;
-    }
-
-    .metrics {
-      grid-template-columns: repeat(2, 1fr);
-    }
-
-    .content-grid {
-      grid-template-columns: 1fr;
-    }
-  }
-
-  @media (max-width: 500px) {
-    .metrics { grid-template-columns: 1fr; }
-    .steps { width: 100%; justify-content: space-between; }
-    .step-line { flex: 1; }
-    .hero, .chart-card, .deductions-card { padding: 17px; }
-    .actions { align-items: flex-start; flex-direction: column; }
-  }
-  /* ---- compact results / top-view reference ---- */
-  .top-view-frame {
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    background: #fbfcfa;
-    padding: 6px;
-    height: 285px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-  }
-
-  /* Keep the reference image's native 1614:1534 aspect ratio. */
-  .top-view-image-wrap {
-    position: relative;
-    height: 100%;
-    width: min(100%, calc(285px * 1614 / 1534));
-    aspect-ratio: 1614 / 1534;
-    flex: 0 0 auto;
-  }
-
-  .top-view-image {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-  }
-
-  .preferred-drop-box {
-    position: absolute;
-    border: 2px solid var(--court);
-    background: rgba(31,107,58,.08);
-    pointer-events: none;
-    z-index: 1;
-  }
-
-  .preferred-box-label {
-    position: absolute;
-    top: 6px;
-    left: 7px;
-    padding: 4px 6px;
-    border-radius: 5px;
-    background: rgba(255,255,255,.92);
-    border: 1px solid var(--court);
-    color: var(--court);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 9px;
-    font-weight: 700;
-    white-space: nowrap;
-  }
-
-  .serve-split-line {
-    position: absolute;
-    left: 0;
-    width: 100%;
-    border-top: 2px dashed var(--line);
-  }
-
-  .landing-marker {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    transform: translate(-50%, -50%);
-    pointer-events: none;
-    z-index: 2;
-  }
-
-  .landing-dot {
-    position: absolute;
-    width: 18px;
-    height: 18px;
-    left: 0;
-    top: 0;
-    transform: translate(-50%, -50%);
-    border-radius: 50%;
-    background: var(--court);
-    border: 3px solid #fff;
-    box-shadow: 0 1px 5px rgba(0,0,0,.35);
-  }
-
-  .landing-crosshair {
-    position: absolute;
-    width: 34px;
-    height: 34px;
-    left: 0;
-    top: 0;
-    transform: translate(-50%, -50%);
-    border: 2px solid var(--court);
-    border-radius: 50%;
-    opacity: .85;
-  }
-
-  .landing-label {
-    position: absolute;
-    left: 15px;
-    top: -34px;
-    white-space: nowrap;
-    padding: 5px 7px;
-    border-radius: 6px;
-    background: #fff;
-    border: 1px solid var(--border);
-    box-shadow: 0 2px 6px rgba(0,0,0,.12);
-    color: var(--court);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    font-weight: 700;
-  }
-
-  .landing-out .landing-dot {
-    background: var(--danger);
-  }
-
-  .landing-out .landing-crosshair {
-    border-color: var(--danger);
-  }
-
-  .landing-out .landing-label {
-    color: var(--danger);
-  }
-
-  .status-in { color: var(--court); }
-  .status-out { color: var(--danger); }
-
-  @media (min-width: 821px) {
-    .hero { min-height: 154px; }
-    .content-grid { min-height: 300px; }
-    .deductions-card { min-height: 300px; }
-    .actions[style] { margin-top: 54px !important; }
-  }
-
-  @media print {
-    @page { size: A4 landscape; margin: 8mm; }
-    body {
-      max-width: none;
-      padding: 0;
-      overflow: visible;
-      background: #fff;
-    }
-    .topbar { margin-bottom: 10px; }
-    .hero { padding: 12px 15px; }
-    .score-ring { width: 90px; height: 90px; }
-    .score-ring::before { width: 70px; height: 70px; }
-    .metrics { gap: 8px; }
-    .metric { min-height: 68px; padding: 9px 12px; }
-    .section-label { margin-top: 3px; margin-bottom: 5px; }
-    .content-grid { gap: 10px; }
-    .chart-card, .deductions-card { padding: 10px; }
-    .top-view-frame { height: 220px; }
-    .actions { margin-top: 18px !important; }
-  }
-
+:root{
+ --court:#1f6b3a;--court-light:#2e8b4f;--court-dim:#e5efe7;--line:#e8b13a;
+ --ink:#1c2521;--muted:#5c6b62;--paper:#f7f8f4;--card:#fff;--border:#dfe4de;
+ --danger:#c0392b;--danger-bg:#fbeceb;--warn:#93650a;--warn-bg:#fdf3de;--warn-border:#efd9a6;
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;width:100%}
+body{font-family:Inter,sans-serif;background:var(--paper);color:var(--ink)}
+h1,h2,h3{font-family:"Space Grotesk",sans-serif}h1{font-size:27px;line-height:1.1;margin:0 0 7px;letter-spacing:-.025em}
+h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
+.page-shell{min-height:100vh;padding:25px 44px 32px}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:13px}
+.brand{display:flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none;font:700 14px "Space Grotesk",sans-serif}
+.brand-mark{width:30px;height:30px;border-radius:8px;background:var(--court);color:#fff;display:grid;place-items:center;font-size:11px}
+.steps{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:11px;white-space:nowrap}
+.step{display:flex;align-items:center;gap:6px}.step-number{width:19px;height:19px;border:1px solid var(--border);border-radius:50%;display:grid;place-items:center;background:#fff;font:10px "JetBrains Mono",monospace}
+.step.done .step-number,.step.active .step-number{background:var(--court);color:#fff;border-color:var(--court)}
+.step.active{font-weight:700;color:var(--ink)}.step-line{width:22px;height:1px;background:var(--border)}
+
+.card{background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 1px 2px rgba(0,0,0,.035)}
+.hero{min-height:140px;display:grid;grid-template-columns:minmax(0,1fr) 190px;gap:20px;padding:20px 15px;align-items:center}
+.hero-copy{min-width:0}.subtitle{font-size:12px;color:var(--muted);line-height:1.5;max-width:780px}
+.score-box{height:100%;border-left:1px solid var(--border);display:flex;flex-direction:column;justify-content:center;align-items:center}
+.score-value{font:700 25px "Space Grotesk",sans-serif}.score-unit{font:9px "JetBrains Mono",monospace;color:var(--muted);margin-top:6px}
+.score-label{font:10px "JetBrains Mono",monospace;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
+.eyebrow,.section-label{font:10px "JetBrains Mono",monospace;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.08em}
+.section-label{margin:10px 0 8px}
+.warning-card{padding:13px 15px;margin-bottom:9px;border-color:var(--warn-border);background:var(--warn-bg)}
+.warning-title{color:var(--warn);font:700 13px "Space Grotesk",sans-serif;margin:4px 0 6px}.warning-message{color:var(--warn);font-size:11px;line-height:1.45;margin-bottom:4px}
+.error-card{padding:20px;border-color:#f0d1ce}.error-title{color:var(--danger);font:700 18px "Space Grotesk",sans-serif;margin:5px 0}.error-message{font-size:12px;color:var(--muted);line-height:1.5}
+
+.detail-grid{display:grid;grid-template-columns:minmax(0,1fr) 395px;gap:10px;align-items:stretch}
+.landing-card{padding:12px;display:flex;flex-direction:column;min-height:0}
+.camera-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.camera-card{padding:12px}
+.camera-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
+.camera-name{font:600 11px "Space Grotesk",sans-serif}.camera-tag{font:8px "JetBrains Mono",monospace;color:var(--court);background:var(--court-dim);padding:3px 5px;border-radius:999px}
+.camera-frame{height:292px;border-radius:6px;overflow:hidden;background:#f8faf7;display:flex;align-items:center;justify-content:center}
+.camera-frame img,.camera-frame video{width:100%;height:100%;object-fit:cover;display:block;background:#000}
+.video-fallback{font-size:13px;color:#111;display:none}
+.landing-title{font:600 14px "Space Grotesk",sans-serif;margin-bottom:9px}
+.map-frame{position:relative;flex:1;min-height:0;border-radius:6px;overflow:hidden;background:#04a94f;display:flex;align-items:center;justify-content:center}
+.map-frame img{width:100%;height:100%;object-fit:contain;display:block}
+.landing-marker{position:absolute;width:1px;height:1px;transform:translate(-50%,-50%);pointer-events:none}
+.landing-dot{position:absolute;width:15px;height:15px;left:0;top:0;transform:translate(-50%,-50%);border-radius:50%;background:var(--court);border:3px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.35)}
+.landing-crosshair{position:absolute;width:28px;height:28px;left:0;top:0;transform:translate(-50%,-50%);border:2px solid var(--court);border-radius:50%}
+.landing-label{position:absolute;left:13px;top:-27px;white-space:nowrap;padding:4px 6px;border-radius:5px;background:#fff;border:1px solid var(--border);font:700 9px "JetBrains Mono",monospace;color:var(--court)}
+.landing-out .landing-dot{background:var(--danger)}.landing-out .landing-crosshair{border-color:var(--danger)}.landing-out .landing-label{color:var(--danger)}
+.status-in{color:var(--court)}.status-out{color:var(--danger)}
+
+.summary-label{margin-top:11px}.summary-card{padding:11px 10px 10px;display:grid;grid-template-columns:1.8fr 1fr;gap:12px;min-height:168px}
+.summary-left{min-width:0}.summary-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
+.pager{display:flex;align-items:center;gap:4px;font:10px "JetBrains Mono",monospace;color:var(--muted)}
+.pager button{border:0;background:none;color:var(--ink);padding:1px 4px;font:12px "JetBrains Mono",monospace;cursor:pointer}
+.pager button:disabled{opacity:.35;cursor:default}
+.pager .shot-label{min-width:28px;text-align:center}
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.metric{padding:10px 11px;min-height:83px}.metric-label{font-size:9px;color:var(--muted);font-weight:700;margin-bottom:6px}
+.metric-value{font:700 18px "Space Grotesk",sans-serif;letter-spacing:-.02em}.metric-unit{font:9px "JetBrains Mono",monospace;color:var(--muted);margin-left:2px}
+.metric-sub{font-size:9px;color:var(--muted);margin-top:4px;line-height:1.25}
+.deductions{border-left:1px solid var(--border);padding-left:12px;display:flex;flex-direction:column;min-width:0}
+.deductions h2{margin-bottom:7px}.deduction{border:1px solid #f0d1ce;background:var(--danger-bg);color:var(--danger);border-radius:6px;padding:7px 8px;font-size:9.5px;line-height:1.35;margin-bottom:6px}
+.no-deductions{border:1px solid var(--border);background:var(--court-dim);color:var(--court);border-radius:6px;padding:8px;font-size:10px}
+.actions{display:flex;justify-content:flex-end;margin-top:auto;padding-top:7px}.btn{display:inline-flex;align-items:center;justify-content:center;text-decoration:none;border-radius:7px;padding:8px 12px;font-size:10px;font-weight:600;cursor:pointer}
+.btn-primary{background:var(--court);border:1px solid var(--court);color:#fff}.btn-secondary{background:#fff;border:1px solid var(--border);color:var(--ink)}
+.action-group{display:flex;gap:7px}
+.footer-note{font:9px "JetBrains Mono",monospace;color:var(--muted);margin-right:auto}
+@media(max-width:1050px){
+ .page-shell{padding:22px 22px 30px}.detail-grid{grid-template-columns:1fr}.landing-card{min-height:440px}.summary-card{grid-template-columns:1fr}.deductions{border-left:0;border-top:1px solid var(--border);padding:10px 0 0}.metrics{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:700px){
+ .topbar{align-items:flex-start;flex-direction:column}.steps{width:100%;justify-content:space-between}.step-line{flex:1}
+ .hero{grid-template-columns:1fr}.score-box{border-left:0;border-top:1px solid var(--border);padding-top:14px}.score-unit{margin-top:4px}
+ .camera-grid{grid-template-columns:1fr}.camera-frame{height:220px}.metrics{grid-template-columns:1fr}.action-group{width:100%}.btn{flex:1}
+}
 </style>
 </head>
-
 <body>
-
 <div class="page-shell">
-
   <div class="topbar">
-    <a class="brand" href="/">
-      <span class="brand-mark">SE</span>
-      Serve Evaluator
-    </a>
-
+    <a class="brand" href="/"><span class="brand-mark">SE</span>Serve Evaluator</a>
     <div class="steps" aria-label="Evaluation progress">
-      <span class="step done">
-        <span class="step-number">1</span> Upload
-      </span>
+      <span class="step done"><span class="step-number">1</span>Upload</span>
       <span class="step-line"></span>
-      <span class="step done">
-        <span class="step-number">2</span> Verify sync
-      </span>
+      <span class="step done"><span class="step-number">2</span>Calibrate</span>
       <span class="step-line"></span>
-      <span class="step done">
-        <span class="step-number">3</span> Calibrate
-      </span>
-      <span class="step-line"></span>
-      <span class="step active">
-        <span class="step-number">4</span> Results
-      </span>
+      <span class="step active"><span class="step-number">3</span>Results</span>
     </div>
   </div>
 
 {% if warnings %}
-<div class="card warning-card">
-  <div class="eyebrow" style="color: var(--warn);">Trajectory warning</div>
-  <div class="warning-title">This result may not be reliable</div>
-  {% for w in warnings %}
-  <p class="warning-message">{{ w }}</p>
-  {% endfor %}
-</div>
+  <div class="card warning-card">
+    <div class="eyebrow" style="color:var(--warn)">Trajectory warning</div>
+    <div class="warning-title">This result may not be reliable</div>
+    {% for w in warnings %}<p class="warning-message">{{ w }}</p>{% endfor %}
+  </div>
 {% endif %}
 
 {% if error %}
-
-<div class="card error-card">
-  <div class="eyebrow">Evaluation error</div>
-  <div class="error-title">We couldn't complete the evaluation</div>
-  <p class="error-message">{{ error }}</p>
-</div>
-
-<div class="actions">
-  <span class="footer-note">Check the uploaded clips and calibration, then try again.</span>
-  <div class="action-group">
-    <a class="btn btn-primary" href="/">Start over</a>
+  <div class="card error-card">
+    <div class="eyebrow">Evaluation error</div>
+    <div class="error-title">We couldn't complete the evaluation</div>
+    <p class="error-message">{{ error }}</p>
   </div>
-</div>
-
+  <div class="actions" style="margin-top:14px"><span class="footer-note">Check the uploaded clips and calibration, then try again.</span><a class="btn btn-primary" href="/">Start over</a></div>
 {% else %}
 
-<div class="card hero">
-  <div class="hero-copy">
-    <h1>Serve performance</h1>
-    <p class="subtitle">
-      Your two-camera footage has been reconstructed into a 3D shuttle trajectory.
-      Detected serve type: <strong>{{ report.serve_type_label }}</strong>, based on where the shuttle landed.
-    </p>
-  </div>
-
-  <div class="score-box">
-    <div class="score-ring" style="--score: {{ report.final_score }}">
-      <div class="score-value">{{ "%.1f"|format(report.final_score) }}</div>
+  <div class="card hero">
+    <div class="hero-copy">
+      <h1>Serve performance</h1>
+      <p class="subtitle">Your two-camera footage has been reconstructed into a 3D shuttle trajectory.</p>
     </div>
-    <div class="score-unit">/ 100 score</div>
+    <div class="score-box">
+      <div class="score-label">Average score:</div>
+      <div class="score-value" id="avgScoreValue">{{ "%.1f"|format(report.final_score) }}</div>
+      <div class="score-unit">/ 100</div>
+    </div>
   </div>
-</div>
 
-<div class="section-label">Trajectory summary</div>
-
+  <div class="section-label">Detailed analysis (video)</div>
 
   {% set landing_x = report.landing_coordinate_m[0] %}
   {% set landing_y = report.landing_coordinate_m[1] %}
-  {#
-    IN/OUT comes from evaluator.py's preferred drop box:
-      X = 1.98 .. 6.70 m
-      Y = 0.00 .. 2.59 m
-
-    Automatic serve classification is separate:
-      Short:  X = 1.98 .. 4.72 m
-      High:   X = 4.73 .. 6.70 m
-
-    Landing score then rewards proximity to the serve-specific GCP
-    endpoints rather than treating the centre of the GCP line as equally
-    valuable.
-  #}
   {% set landing_in = (report.landing_status == "IN") %}
 
-<div class="metrics">
-  <div class="card metric">
-    <div class="metric-label">Peak height</div>
-    <div class="metric-value">
-      {{ "%.2f"|format(report.max_height_m) }}<span class="metric-unit">m</span>
-    </div>
-    <div class="metric-sub">Maximum shuttle height</div>
-  </div>
-
-  <div class="card metric">
-    <div class="metric-label">Net clearance</div>
-    <div class="metric-value">
-      {{ "%.2f"|format(report.net_clearance_m) }}<span class="metric-unit">m</span>
-    </div>
-    <div class="metric-sub">Height above net</div>
-  </div>
-
-  <div class="card metric">
-    <div class="metric-label">Landing X / Y</div>
-    <div class="metric-value" style="font-size:18px;">
-      {{ "%.2f"|format(landing_x) }}, {{ "%.2f"|format(landing_y) }}
-      <span class="{{ 'status-in' if landing_in else 'status-out' }}">
-        ({{ 'IN' if landing_in else 'OUT' }})
-      </span>
-    </div>
-    <div class="metric-sub">
-      {% if report.landing_status_reason %}
-        {{ report.landing_status_reason }}
-      {% else %}
-        metres from net centre
-      {% endif %}
-    </div>
-  </div>
-</div>
-
-<div class="section-label">Detailed analysis</div>
-
-<div class="content-grid">
-  <div class="card chart-card">
-    <div class="card-heading">
-      <h2>Shuttlecock landing position</h2>
-    </div>
-
-    <div class="top-view-frame">
-      <div class="top-view-image-wrap">
-        <img
-          src="/static/guide/top_view_spot.jpg"
-          alt="Top view reference court with calibration points"
-          class="top-view-image"
-        >
-
-        {# Preferred drop box overlay:
-           X = 1.98..6.70, Y = 0.00..2.59.
-           Using the same pixel mapping as the landing marker keeps the
-           displayed boundary consistent with the evaluator coordinates. #}
-        {# Calibration-reference mapping for top_view_spot.jpg (1614x1534):
-           GCP0 = origin (X=0, Y=0), GCP3 ~= 3.34 m depth,
-           GCP5 ~= 6.70 m depth, with GCP1/GCP2 spanning the lateral court. #}
-        {% set image_w = 1614 %}
-        {% set image_h = 1534 %}
-        {% set origin_x_px = 804 %}
-        {% set origin_y_px = 136 %}
-        {% set depth_end_y_px = 1379 %}
-        {% set left_y_px = 304 %}
-        {% set right_y_px = 1301 %}
-        {# left_y_px/right_y_px are calibrated to GCP1/GCP2 (Y = -2.59m /
-           +2.59m, the singles sidelines -- see calibrate_core.py), so the
-           real-world span those pixels represent is 2 x 2.59m = 5.18m, not
-           the 6.10m doubles width. This only affects where the dot is
-           drawn on the image; IN/OUT itself comes from
-           report.landing_status, computed in evaluator.py. #}
-        {% set court_width_m = 5.18 %}
-        {% set court_depth_m = 6.70 %}
-
-        {% set landing_px = origin_x_px + (landing_y / court_width_m) * (right_y_px - left_y_px) %}
-        {% set landing_py = origin_y_px + (landing_x / court_depth_m) * (depth_end_y_px - origin_y_px) %}
-
-        {% set preferred_x_px = origin_x_px %}
-        {% set preferred_y_px = origin_y_px + (1.98 / court_depth_m) * (depth_end_y_px - origin_y_px) %}
-        {% set preferred_w_px = right_y_px - origin_x_px %}
-        {% set preferred_h_px = depth_end_y_px - preferred_y_px %}
-        {% set serve_split_y_px = origin_y_px + (4.725 / court_depth_m) * (depth_end_y_px - origin_y_px) %}
-
-        <div
-          class="preferred-drop-box"
-          style="
-            left: {{ (preferred_x_px / image_w * 100)|round(3) }}%;
-            top: {{ (preferred_y_px / image_h * 100)|round(3) }}%;
-            width: {{ (preferred_w_px / image_w * 100)|round(3) }}%;
-            height: {{ (preferred_h_px / image_h * 100)|round(3) }}%;
-          "
-          aria-label="Preferred drop box: X 1.98 to 6.70 metres, Y 0.00 to 2.59 metres"
-        >
-          <span class="preferred-box-label">PREFERRED DROP BOX · IN</span>
-          <span
-            class="serve-split-line"
-            style="top: {{ ((serve_split_y_px - preferred_y_px) / preferred_h_px * 100)|round(3) }}%;"
-          ></span>
+  <div class="detail-grid">
+    <div class="camera-grid">
+      <div class="card camera-card">
+        <div class="camera-head"><span class="camera-name">Side camera</span><span class="camera-tag">SIDE</span></div>
+        <div class="camera-frame">
+          <video src="/static/uploads/side_sync.mp4" poster="/static/uploads/side_frame.jpg" controls muted playsinline preload="metadata" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"></video>
+          <span class="video-fallback">Side view</span>
         </div>
+      </div>
+      <div class="card camera-card">
+        <div class="camera-head"><span class="camera-name">Back camera</span><span class="camera-tag">BACK</span></div>
+        <div class="camera-frame">
+          <video src="/static/uploads/back_sync.mp4" poster="/static/uploads/back_frame.jpg" controls muted playsinline preload="metadata" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"></video>
+          <span class="video-fallback">Back view</span>
+        </div>
+      </div>
+    </div>
 
-        <div
-          class="landing-marker {{ 'landing-in' if landing_in else 'landing-out' }}"
-          style="left: {{ (landing_px / image_w * 100)|round(3) }}%; top: {{ (landing_py / image_h * 100)|round(3) }}%;"
-          title="Landing: {{ '%.2f'|format(landing_x) }}, {{ '%.2f'|format(landing_y) }} ({{ 'IN' if landing_in else 'OUT' }})"
-          aria-label="Shuttlecock landing point: {{ '%.2f'|format(landing_x) }}, {{ '%.2f'|format(landing_y) }} ({{ 'IN' if landing_in else 'OUT' }})"
-        >
-          <span class="landing-crosshair"></span>
-          <span class="landing-dot"></span>
-          <span class="landing-label">
-            {{ "%.2f"|format(landing_x) }}, {{ "%.2f"|format(landing_y) }}
-            ({{ "IN" if landing_in else "OUT" }})
-          </span>
+    <div class="card landing-card">
+      <div class="landing-title">Shuttlecock landing position</div>
+      <div class="map-frame">
+        <img src="/static/guide/top_view_spot.jpg" alt="Top view reference court">
+        {% set image_w=1614 %}{% set image_h=1534 %}
+        {% set origin_x_px=804 %}{% set origin_y_px=136 %}{% set depth_end_y_px=1379 %}
+        {% set left_y_px=304 %}{% set right_y_px=1301 %}{% set court_width_m=5.18 %}{% set court_depth_m=6.70 %}
+        {% set landing_px=origin_x_px+(landing_y/court_width_m)*(right_y_px-left_y_px) %}
+        {% set landing_py=origin_y_px+(landing_x/court_depth_m)*(depth_end_y_px-origin_y_px) %}
+        <div class="landing-marker {{ 'landing-in' if landing_in else 'landing-out' }}" style="left:{{ (landing_px/image_w*100)|round(3) }}%;top:{{ (landing_py/image_h*100)|round(3) }}%">
+          <span class="landing-crosshair"></span><span class="landing-dot"></span>
+          <span class="landing-label">{{ "%.2f"|format(landing_x) }}, {{ "%.2f"|format(landing_y) }} ({{ "IN" if landing_in else "OUT" }})</span>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="card deductions-card">
-    <div class="card-heading">
+  <div class="section-label summary-label">Trajectory summary</div>
+  <div class="card summary-card" id="summaryCard">
+    <div class="summary-left">
+      <div class="summary-head">
+        <h2>Scoring deductions</h2>
+        <div class="pager" aria-label="Shot selector">
+          <button id="prevShot" type="button" aria-label="Previous shot">&lt;</button>
+          <span class="shot-label" id="shotLabel">1</span>
+          <button id="nextShot" type="button" aria-label="Next shot">&gt;</button>
+        </div>
+      </div>
+
+      <div class="metrics">
+        <div class="card metric">
+          <div class="metric-label">Serve score</div>
+          <div class="metric-value"><span data-field="score">{{ "%.1f"|format(report.final_score) }}</span><span class="metric-unit">/100</span></div>
+          <div class="metric-sub">This serve's score</div>
+        </div>
+        <div class="card metric">
+          <div class="metric-label">Peak height</div>
+          <div class="metric-value"><span data-field="peak">{{ "%.2f"|format(report.max_height_m) }}</span><span class="metric-unit">m</span></div>
+          <div class="metric-sub">Maximum shuttle height</div>
+        </div>
+        <div class="card metric">
+          <div class="metric-label">Landing X / Y</div>
+          <div class="metric-value" style="font-size:15px"><span data-field="landing">{{ "%.2f"|format(landing_x) }}, {{ "%.2f"|format(landing_y) }}</span> <span id="landingStatus" class="{{ 'status-in' if landing_in else 'status-out' }}">({{ "IN" if landing_in else "OUT" }})</span></div>
+          <div class="metric-sub" id="landingReason">Landing is {{ "inside" if landing_in else "outside" }} the preferred drop box.</div>
+        </div>
+        <div class="card metric">
+          <div class="metric-label">Net clearance</div>
+          <div class="metric-value"><span data-field="clearance">{{ "%.2f"|format(report.net_clearance_m) }}</span><span class="metric-unit">m</span></div>
+          <div class="metric-sub">Height above net</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="deductions">
       <h2>Scoring deductions <strong>({{ report.serve_type_label }})</strong></h2>
-    </div>
-
-    {% if report.deductions %}
-      {% for d in report.deductions %}
-        <div class="deduction">{{ d }}</div>
-      {% endfor %}
-    {% else %}
-      <div class="no-deductions">No deductions. Excellent execution.</div>
-    {% endif %}
-
-    <div class="actions" style="right: 0; justify-content: flex-end;">
-      <div class="action-group">
-        <a class="btn btn-secondary" href="/calibrate">Review calibration</a>
-        <a class="btn btn-primary" href="/">Evaluate another serve</a>
+      <div id="deductionList">
+      {% if report.deductions %}
+        {% for d in report.deductions %}<div class="deduction">{{ d }}</div>{% endfor %}
+      {% else %}<div class="no-deductions">No deductions. Excellent execution.</div>{% endif %}
+      </div>
+      <div class="actions">
+        <div class="action-group">
+          <a class="btn btn-secondary" href="/calibrate">Review calibration</a>
+          <a class="btn btn-primary" href="/">Evaluate another serve</a>
+        </div>
       </div>
     </div>
   </div>
-</div>
 
+  {# Optional frontend shot data:
+     If a future backend supplies report.shots, this page can render it without changing
+     the layout. With today's backend there is one report, so the pager remains on shot 1. #}
+  <script id="shot-data" type="application/json">
+  {{ (report.shots if report.shots is defined else []) | tojson }}
+  </script>
+  <script>
+  (() => {
+    const raw=document.getElementById("shot-data").textContent.trim();
+    let shots=[];
+    try{shots=raw?JSON.parse(raw):[]}catch(e){shots=[]}
+    const current={
+      final_score:{{ report.final_score|tojson }},
+      max_height_m:{{ report.max_height_m|tojson }},
+      net_clearance_m:{{ report.net_clearance_m|tojson }},
+      landing_coordinate_m:{{ report.landing_coordinate_m|tojson }},
+      landing_status:{{ report.landing_status|tojson }},
+      landing_status_reason:{{ (report.landing_status_reason or "metres from net centre")|tojson }},
+      serve_type_label:{{ report.serve_type_label|tojson }},
+      deductions:{{ report.deductions|tojson }}
+    };
+    if(!shots.length)shots=[current];
+
+    const avg=shots.reduce((sum,s)=>sum+Number(s.final_score||0),0)/shots.length;
+    document.getElementById("avgScoreValue").textContent=avg.toFixed(1);
+
+    let index=0;
+    const prev=document.getElementById("prevShot"),next=document.getElementById("nextShot"),label=document.getElementById("shotLabel");
+    function render(){
+      const s=shots[index]||current, xy=s.landing_coordinate_m||current.landing_coordinate_m;
+      const inStatus=(s.landing_status||"OUT")==="IN";
+      document.querySelector('[data-field="score"]').textContent=Number(s.final_score||0).toFixed(1);
+      document.querySelector('[data-field="peak"]').textContent=Number(s.max_height_m||0).toFixed(2);
+      document.querySelector('[data-field="clearance"]').textContent=Number(s.net_clearance_m||0).toFixed(2);
+      document.querySelector('[data-field="landing"]').textContent=`${Number(xy[0]||0).toFixed(2)}, ${Number(xy[1]||0).toFixed(2)}`;
+      const st=document.getElementById("landingStatus");st.textContent=inStatus?"(IN)":"(OUT)";st.className=inStatus?"status-in":"status-out";
+      document.getElementById("landingReason").textContent=`Landing is ${inStatus?"inside":"outside"} the preferred drop box.`;
+      label.textContent=String(index+1);
+      prev.disabled=index===0;next.disabled=index===shots.length-1;
+      const list=document.getElementById("deductionList");
+      list.innerHTML="";
+      const ds=s.deductions||[];
+      if(!ds.length){list.innerHTML='<div class="no-deductions">No deductions. Excellent execution.</div>'}
+      else ds.forEach(d=>{const el=document.createElement("div");el.className="deduction";el.textContent=d;list.appendChild(el)});
+    }
+    prev.onclick=()=>{if(index>0){index--;render()}};
+    next.onclick=()=>{if(index<shots.length-1){index++;render()}};
+    render();
+  })();
+  </script>
 {% endif %}
-
+</div>
 </body>
 </html>

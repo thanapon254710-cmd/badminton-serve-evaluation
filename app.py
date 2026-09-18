@@ -1,4 +1,6 @@
 import os
+import shutil
+import subprocess
 import cv2
 import numpy as np
 import threading
@@ -227,6 +229,45 @@ def extract_video_frames(video_path, output_dir, job_id, label):
     return frame_idx, fps
 
 
+def make_browser_playable_copy(src_path, dst_path):
+    """Copy a video for direct <video> playback in the browser.
+
+    create_sync_video() below writes with OpenCV's "mp4v" fourcc (MPEG-4
+    Part 2) because that's the codec most reliably available for
+    VideoWriter across machines, and OpenCV can read its own mp4v output
+    fine for triangulation. Browsers, however, essentially never support
+    mp4v decoding in a <video> tag -- they need proper H.264 -- so a plain
+    copy of that file will silently fail to play (Chrome/Firefox just fire
+    a media error event with no dialog, which looks like a missing file).
+
+    This re-encodes with ffmpeg into H.264/yuv420p, which every mainstream
+    browser plays natively. If ffmpeg isn't installed or the re-encode
+    fails for some reason, we fall back to a plain copy rather than
+    crashing the request -- that copy just won't play in-browser, exactly
+    like before this function existed.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", src_path,
+                "-c:v", "libx264",
+                "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart",
+                dst_path,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=120,
+        )
+        if result.returncode == 0 and os.path.exists(dst_path):
+            return
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    shutil.copyfile(src_path, dst_path)
+
+
 def create_sync_video(frame_paths, output_path, fps, frame_size):
     """Create a video whose frame N is the synchronized pair's frame N."""
     if not frame_paths:
@@ -350,6 +391,19 @@ def save_synchronized_outputs(match_result, output_root, job_id, side_fps, back_
         os.path.join(UPLOAD_VIDEO_DIR, "side_sync.mp4"),
         sync_fps,
         (side0.shape[1], side0.shape[0]),
+    )
+
+    # The dashboard plays these directly in the browser, so make them
+    # reachable the same way the calibration frame JPGs already are
+    # (Flask's default /static route serves anything under STATIC_DIR),
+    # re-encoded to a codec browsers can actually decode.
+    make_browser_playable_copy(
+        os.path.join(UPLOAD_VIDEO_DIR, "back_sync.mp4"),
+        os.path.join(STATIC_DIR, "back_sync.mp4"),
+    )
+    make_browser_playable_copy(
+        os.path.join(UPLOAD_VIDEO_DIR, "side_sync.mp4"),
+        os.path.join(STATIC_DIR, "side_sync.mp4"),
     )
 
     return len(back_paths), sync_fps
@@ -654,6 +708,12 @@ def sync_confirm(job_id):
 def calibrate_page():
     side_img = cv2.imread(os.path.join(STATIC_DIR, "side_frame.jpg"))
     back_img = cv2.imread(os.path.join(STATIC_DIR, "back_frame.jpg"))
+    if side_img is None or back_img is None:
+        # No calibration frames yet — e.g. straight after a server restart,
+        # before any upload has finished. Send the user back to upload
+        # instead of crashing with a 500 (cv2 returns None, not an
+        # exception, for a missing/unreadable file).
+        return redirect(url_for("index"))
     side_h, side_w = side_img.shape[:2]
     back_h, back_w = back_img.shape[:2]
     return render_template("calibrate.html",

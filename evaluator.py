@@ -51,52 +51,61 @@ TARGET_HIGH_BACK = (
 )  # Deep baseline, center to sideline
 
 # -----------------------------------------------------------------------
-# Scoring weights.
+# Scoring model
 #
-# IMPORTANT: unlike the geometry constants above (which come straight
-# from actual BWF court dimensions), everything below is an engineering
-# estimate based on badminton intuition -- NOT a value derived from BWF
-# rules or measured real serve data. They used to be unnamed literals
-# scattered through the scoring logic (e.g. "* 40.0", "* 25.0"); they're
-# named and centralized here instead so they're visible, easy to tune,
-# and honestly labeled as guesses rather than looking authoritative.
-# Treat these as placeholders to be recalibrated once real serve data
-# is available, not as settled constants.
+# Total = 100 points:
+#   Landing placement : 50
+#   Net clearance     : 30
+#   Peak height       : 20
+#
+# These thresholds are INITIAL, TUNABLE criteria. They are not BWF rules
+# and should later be calibrated against measured high-level/pro serves.
 # -----------------------------------------------------------------------
 
-# Short serve: a low, flat trajectory that just grazes the net is the
-# optimal technique (harder for the opponent to attack), so clearance
-# within this window costs nothing. This window itself isn't a BWF rule,
-# just server-technique convention.
-SHORT_SERVE_IDEAL_CLEARANCE_M = 0.25
+LANDING_WEIGHT = 50.0
+NET_CLEARANCE_WEIGHT = 30.0
+PEAK_HEIGHT_WEIGHT = 20.0
 
-# Points lost per metre of net clearance above that ideal window.
-SHORT_SERVE_CLEARANCE_PENALTY_PER_M = 40.0
+# Landing placement uses a smooth distance curve. A larger sigma makes
+# the score more forgiving. sigma=1.00 m means a landing 1.48 m from
+# the nearest target still receives meaningful credit rather than an
+# abrupt zero.
+LANDING_SCORE_SIGMA_M = 1.00
 
-# Flat penalty for clipping/hitting the net (net_clearance < 0).
-NET_HIT_PENALTY = 50.0
+# Short serve: lower clearance is preferred.
+# <= 0.20 m -> full 30 points.
+# > 1.00 m -> 0 points.
+# Between them -> linear interpolation.
+SHORT_NET_IDEAL_CLEARANCE_M = 0.20
+SHORT_NET_ZERO_SCORE_CLEARANCE_M = 1.00
 
-# Points lost per metre of landing error from the target line (distance
-# to TARGET_SHORT_FRONT / TARGET_HIGH_BACK). These two are intentionally
-# different: the legal short-serve depth range (net to 1.98m) is much
-# smaller than the long-serve range (1.98m to 6.70m), so the same
-# per-metre penalty would make a short-serve miss look proportionally
-# far worse than an equivalent long-serve miss. Scaling the short-serve
-# weight up keeps the two roughly comparable in severity -- still a
-# rough estimate, not a derived value.
-SHORT_SERVE_LANDING_PENALTY_PER_M = 25.0
-LONG_SERVE_LANDING_PENALTY_PER_M = 20.0
+# Short serve: lower peak is preferred.
+# <= 1.50 m -> full 20 points.
+# > 3.50 m -> 0 points.
+# Between them -> linear interpolation.
+SHORT_PEAK_IDEAL_M = 1.50
+SHORT_PEAK_ZERO_SCORE_M = 3.50
 
-# Long/high serve: minimum apex height, in metres, for the arc to be
-# considered a "proper" high serve rather than a flat, attackable one.
-LONG_SERVE_MIN_APEX_M = 3.5
+# High/long serve: higher clearance is preferred.
+# < 0.20 m -> 0 points.
+# >= 1.00 m -> full 30 points.
+# Between them -> linear interpolation.
+HIGH_NET_ZERO_SCORE_CLEARANCE_M = 0.20
+HIGH_NET_IDEAL_CLEARANCE_M = 1.00
 
-# Points lost per metre the apex falls short of LONG_SERVE_MIN_APEX_M.
-LONG_SERVE_ARC_PENALTY_PER_M = 20.0
+# High/long serve: higher peak is preferred.
+# < 2.00 m -> 0 points.
+# >= 3.50 m -> full 20 points.
+# Between them -> linear interpolation.
+HIGH_PEAK_ZERO_SCORE_M = 2.00
+HIGH_PEAK_IDEAL_M = 3.50
+
+# Hitting the net is always zero for the net-clearance component.
+NET_HIT_SCORE = 0.0
 
 SERVE_TYPE_LABELS = {
     "short_front_corner": "Short serve",
-    "high_back_corner": "High / long serve",
+    "high_back_corner": "High serve",
 }
 
 
@@ -234,7 +243,10 @@ def _evaluate_landing_status(landing_pt, serve_type=None):
 
 def _landing_target_score(landing_pt, serve_type):
     """
-    Score landing accuracy by proximity to the nearest target GCP.
+    Return landing-placement score on a 0..100 scale.
+
+    The score is based on Euclidean distance to the nearer serve-specific
+    GCP. It is deliberately smooth rather than having a hard cutoff.
 
     Short:
         GCP3 = (1.98, 0.00)
@@ -243,10 +255,6 @@ def _landing_target_score(landing_pt, serve_type):
     High:
         GCP5 = (6.70, 0.00)
         GCP6 = (6.70, 2.59)
-
-    Exact GCP = 100. The midpoint Y=1.295 is farther from either GCP
-    and therefore scores lower. This implements the requested preference
-    for the two 0.50 m endpoint zones over the centre of the line.
     """
     point = np.asarray(landing_pt, dtype=np.float64)
 
@@ -264,43 +272,107 @@ def _landing_target_score(landing_pt, serve_type):
     dist_a = float(np.linalg.norm(point - gcp_a))
     dist_b = float(np.linalg.norm(point - gcp_b))
     nearest_dist = min(dist_a, dist_b)
-
-    # The midpoint between the two GCPs is 1.295 m from either endpoint.
-    max_target_dist = 2.59 / 2.0
-    score = float(np.clip(
-        100.0 * (1.0 - nearest_dist / max_target_dist),
-        0.0,
-        100.0,
-    ))
-
     nearest_name = name_a if dist_a <= dist_b else name_b
+
+    # Gaussian decay:
+    #   d=0      -> 100
+    #   d=sigma  -> 60.7
+    #   d=1.48m  -> about 33.5 when sigma=1.00m
+    score = 100.0 * np.exp(
+        -(nearest_dist ** 2) / (2.0 * LANDING_SCORE_SIGMA_M ** 2)
+    )
+    score = float(np.clip(score, 0.0, 100.0))
+
     return score, nearest_dist, nearest_name
 
+
+def _bounded_linear_score(value, low, high, increasing=True):
+    """
+    Map a value to 0..1 with a linear, clamped relationship.
+
+    increasing=True:
+        low -> 0, high -> 1
+    increasing=False:
+        low -> 1, high -> 0
+    """
+    if high <= low:
+        return 0.0
+
+    t = float(np.clip((float(value) - low) / (high - low), 0.0, 1.0))
+    return t if increasing else 1.0 - t
+
+
+def _net_clearance_score(net_clearance, serve_type):
+    """Return the net-clearance component on a 0..30 scale."""
+    if net_clearance < 0.0:
+        return NET_HIT_SCORE
+
+    if serve_type == "short_front_corner":
+        # Lower is better.
+        normalized = _bounded_linear_score(
+            net_clearance,
+            SHORT_NET_IDEAL_CLEARANCE_M,
+            SHORT_NET_ZERO_SCORE_CLEARANCE_M,
+            increasing=False,
+        )
+    else:
+        # Higher is better.
+        normalized = _bounded_linear_score(
+            net_clearance,
+            HIGH_NET_ZERO_SCORE_CLEARANCE_M,
+            HIGH_NET_IDEAL_CLEARANCE_M,
+            increasing=True,
+        )
+
+    return float(normalized * NET_CLEARANCE_WEIGHT)
+
+
+def _peak_height_score(max_height, serve_type):
+    """Return the peak-height component on a 0..20 scale."""
+    if serve_type == "short_front_corner":
+        # Lower is better.
+        normalized = _bounded_linear_score(
+            max_height,
+            SHORT_PEAK_IDEAL_M,
+            SHORT_PEAK_ZERO_SCORE_M,
+            increasing=False,
+        )
+    else:
+        # Higher is better.
+        normalized = _bounded_linear_score(
+            max_height,
+            HIGH_PEAK_ZERO_SCORE_M,
+            HIGH_PEAK_IDEAL_M,
+            increasing=True,
+        )
+
+    return float(normalized * PEAK_HEIGHT_WEIGHT)
 
 
 def evaluate_serve_performance(trajectory_data, serve_type="auto"):
     """
     Evaluate serve quality from a triangulated 3D trajectory.
 
-    serve_type:
-        "short_front_corner"
-        "high_back_corner"
-        "auto"
+    Score:
+        Landing placement : 50 pts
+        Net clearance     : 30 pts
+        Peak height       : 20 pts
+        Total             : 100 pts
 
-    In "auto" mode, FRONT_BACK_SPLIT_X = 4.34 m is retained to classify
-    the serve based on its estimated landing depth.
+    Short serve:
+        lower net clearance -> higher score
+        lower peak height   -> higher score
 
-    IN/OUT is then determined independently by testing the landing
-    coordinate against the calibrated court boundaries.
+    High/long serve:
+        higher net clearance -> higher score
+        higher peak height   -> higher score
 
-    The landing-accuracy score is measured against the full target
-    LINE (center line to sideline) at the correct depth, not a single
-    corner point -- see TARGET_SHORT_FRONT / TARGET_HIGH_BACK.
+    IN/OUT remains separate from scoring. A landing outside the preferred
+    drop box is OUT and the final serve score is forced to 0.
     """
     if len(trajectory_data) == 0:
         return {"error": "No 3D trajectory points recorded."}
 
-    # Convert trajectory to array.
     pts = np.array(
         [[p["X"], p["Y"], p["Z"]] for p in trajectory_data],
         dtype=np.float64,
@@ -309,14 +381,14 @@ def evaluate_serve_performance(trajectory_data, serve_type="auto"):
     if pts.ndim != 2 or pts.shape[1] != 3:
         return {"error": "Invalid 3D trajectory format."}
 
-    # Feature 1: Max Height (Apex).
+    # Feature 1: maximum height.
     max_height = float(np.max(pts[:, 2]))
 
-    # Feature 2: Net Clearance Height.
+    # Feature 2: net clearance height.
     net_idx = int(np.argmin(np.abs(pts[:, 0])))
     net_clearance = float(pts[net_idx, 2] - 1.55)
 
-    # Feature 3: Estimated ground landing point.
+    # Feature 3: estimated floor landing point.
     landing_pt = _find_landing_point(pts)
     landing_x = float(landing_pt[0])
     landing_y = float(landing_pt[1])
@@ -324,87 +396,54 @@ def evaluate_serve_performance(trajectory_data, serve_type="auto"):
     # IN/OUT is ALWAYS determined by the preferred drop box.
     landing_result = _evaluate_landing_status(landing_pt)
 
-    # Serve type is used only for selecting the appropriate scoring target.
+    # Automatic serve classification is based only on landing X.
     if serve_type == "auto":
         serve_type = _classify_serve_type(landing_x)
 
     if serve_type not in SERVE_TYPE_LABELS:
         return {"error": f"Unknown serve type: {serve_type}"}
 
-    # Initialize score parameters.
-    base_score = 100.0
-    deductions = []
+    # ---------------------------------------------------------------
+    # Three independent score components.
+    # ---------------------------------------------------------------
+    landing_score_100, dist_err, nearest_gcp = _landing_target_score(
+        landing_pt, serve_type
+    )
+    landing_points = LANDING_WEIGHT * (landing_score_100 / 100.0)
 
-    if serve_type == "short_front_corner":
-        target = TARGET_SHORT_FRONT
+    net_points = _net_clearance_score(net_clearance, serve_type)
+    peak_points = _peak_height_score(max_height, serve_type)
 
-        # Rule A: Net clearance penalty.
-        if net_clearance > SHORT_SERVE_IDEAL_CLEARANCE_M:
-            pen = (
-                net_clearance - SHORT_SERVE_IDEAL_CLEARANCE_M
-            ) * SHORT_SERVE_CLEARANCE_PENALTY_PER_M
-            base_score -= pen
-            deductions.append(
-                f"Net clearance too high ({net_clearance:.2f}m above net): "
-                f"-{pen:.1f} pts"
-            )
-        elif net_clearance < 0.0:
-            base_score -= NET_HIT_PENALTY
-            deductions.append(f"Shuttlecock hit the net: -{NET_HIT_PENALTY:.1f} pts")
+    total_score = landing_points + net_points + peak_points
 
-        # Rule B: Prefer landing near GCP3/GCP4 rather than the centre
-        # of the short target line.
-        landing_score, dist_err, nearest_gcp = _landing_target_score(
-            landing_pt, serve_type
-        )
-        pen_dist = 100.0 - landing_score
-        base_score -= pen_dist
-        deductions.append(
-            f"Landing target score {landing_score:.1f}/100 "
-            f"({nearest_gcp}, {dist_err:.2f}m away): "
-            f"-{pen_dist:.1f} pts"
-        )
+    deductions = [
+        (
+            f"Landing placement: {landing_points:.1f}/{LANDING_WEIGHT:.0f} pts "
+            f"({nearest_gcp}, {dist_err:.2f}m away)"
+        ),
+        (
+            f"Net clearance: {net_points:.1f}/{NET_CLEARANCE_WEIGHT:.0f} pts "
+            f"({net_clearance:.2f}m above net)"
+        ),
+        (
+            f"Peak height: {peak_points:.1f}/{PEAK_HEIGHT_WEIGHT:.0f} pts "
+            f"({max_height:.2f}m)"
+        ),
+    ]
 
-    elif serve_type == "high_back_corner":
-        target = TARGET_HIGH_BACK
+    if net_clearance < 0.0:
+        deductions[1] += " — shuttlecock hit the net"
 
-        # Rule A: High serve arc requirement.
-        if max_height < LONG_SERVE_MIN_APEX_M:
-            pen = (
-                LONG_SERVE_MIN_APEX_M - max_height
-            ) * LONG_SERVE_ARC_PENALTY_PER_M
-            base_score -= pen
-            deductions.append(
-                f"Serve arc too flat (Peak height {max_height:.2f}m): "
-                f"-{pen:.1f} pts"
-            )
-
-        # Rule B: Prefer landing near GCP5/GCP6 rather than the centre
-        # of the high-serve target line.
-        landing_score, dist_err, nearest_gcp = _landing_target_score(
-            landing_pt, serve_type
-        )
-        pen_dist = 100.0 - landing_score
-        base_score -= pen_dist
-        deductions.append(
-            f"Landing target score {landing_score:.1f}/100 "
-            f"({nearest_gcp}, {dist_err:.2f}m away): "
-            f"-{pen_dist:.1f} pts"
-        )
-
-    final_score = float(np.clip(base_score, 0.0, 100.0))
-
-    # A serve that lands OUT is a fault -- the point goes to the opponent
-    # outright, regardless of how good the net clearance/arc/depth
-    # otherwise looked. The distance-based deductions above are still
-    # computed and reported (useful context for "how far out"), but they
-    # no longer determine the score once the serve is a fault.
+    # A serve outside the preferred drop box is a fault regardless of
+    # trajectory quality.
     if landing_result["landing_status"] == "OUT":
-        final_score = 0.0
+        total_score = 0.0
         deductions.append(
             f"Serve is OUT ({landing_result['landing_status_reason']}): "
-            f"score set to 0.0 pts"
+            "final score set to 0.0 pts"
         )
+
+    final_score = float(np.clip(total_score, 0.0, 100.0))
 
     return {
         "final_score": final_score,
@@ -414,10 +453,7 @@ def evaluate_serve_performance(trajectory_data, serve_type="auto"):
         "landing_status": landing_result["landing_status"],
         "landing_status_reason": landing_result["landing_status_reason"],
         "serve_type": serve_type,
-        "serve_type_label": SERVE_TYPE_LABELS.get(
-            serve_type,
-            serve_type,
-        ),
+        "serve_type_label": SERVE_TYPE_LABELS.get(serve_type, serve_type),
         "front_back_split_x_m": FRONT_BACK_SPLIT_X,
         "preferred_drop_box": {
             "x_min_m": PREFERRED_DROP_X_MIN,
@@ -438,6 +474,22 @@ def evaluate_serve_performance(trajectory_data, serve_type="auto"):
                 "y_min_m": PREFERRED_DROP_Y_MIN,
                 "y_max_m": PREFERRED_DROP_Y_MAX,
             },
+        },
+        "score_breakdown": {
+            "landing_placement": landing_points,
+            "net_clearance": net_points,
+            "peak_height": peak_points,
+            "total": final_score,
+        },
+        "landing_target": {
+            "gcp": nearest_gcp,
+            "distance_m": dist_err,
+            "score_percent": landing_score_100,
+        },
+        "scoring_weights": {
+            "landing_placement": LANDING_WEIGHT,
+            "net_clearance": NET_CLEARANCE_WEIGHT,
+            "peak_height": PEAK_HEIGHT_WEIGHT,
         },
         "deductions": deductions,
     }
