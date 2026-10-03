@@ -9,7 +9,7 @@ import uuid
 import json
 from flask import Flask, render_template, request, redirect, url_for, jsonify, send_file
 
-from calibrate_core import solve_camera, WORLD_GCPS, GCP_LABELS, CAMERA_META
+from calibrate_core import ( solve_camera, WORLD_GCPS, GCP_LABELS, CAMERA_META, auto_detect_gcps, save_landmark,)
 from triangulate import BadmintonTracker3D
 from evaluator import evaluate_serve_performance
 
@@ -714,8 +714,19 @@ def calibrate_page():
         # instead of crashing with a 500 (cv2 returns None, not an
         # exception, for a missing/unreadable file).
         return redirect(url_for("index"))
+
     side_h, side_w = side_img.shape[:2]
     back_h, back_w = back_img.shape[:2]
+
+    side_guess, side_conf, side_source = auto_detect_gcps(side_img, "side")
+    back_guess, back_conf, back_source = auto_detect_gcps(back_img, "back")
+
+    def as_list(points_dict):
+        return [list(points_dict[i]) for i in range(len(WORLD_GCPS))]
+
+    def as_list_conf(conf_dict):
+        return [conf_dict[i] for i in range(len(WORLD_GCPS))]
+
     return render_template("calibrate.html",
                             side_w=side_w, side_h=side_h,
                             back_w=back_w, back_h=back_h,
@@ -723,6 +734,12 @@ def calibrate_page():
                             gcp_labels=GCP_LABELS,
                             side_meta=CAMERA_META["side"],
                             back_meta=CAMERA_META["back"],
+                            side_guess=as_list(side_guess),
+                            back_guess=as_list(back_guess),
+                            side_confidence=as_list_conf(side_conf),
+                            back_confidence=as_list_conf(back_conf),
+                            side_source=side_source,
+                            back_source=back_source,
                             sync_job_id=latest_synced_job_id)
 
 @app.route("/save_calibration", methods=["POST"])
@@ -735,6 +752,20 @@ def save_calibration():
         return jsonify({"error": str(e)}), 400
 
     np.savez(os.path.join(BASE, "web_calibration.npz"), P_side=P_side, P_back=P_back)
+
+    # Remember this confirmed calibration for future auto-matching.
+    # Best-effort: a failure here must not block saving the calibration.
+    try:
+        side_img = cv2.imread(os.path.join(STATIC_DIR, "side_frame.jpg"))
+        back_img = cv2.imread(os.path.join(STATIC_DIR, "back_frame.jpg"))
+        if side_img is not None:
+            save_landmark(side_img, "side", data["side_points"])
+        if back_img is not None:
+            save_landmark(back_img, "back", data["back_points"])
+    except Exception:
+        import traceback
+        traceback.print_exc()
+
     return jsonify({"status": "ok"})
 
 @app.route("/run_evaluation", methods=["POST"])

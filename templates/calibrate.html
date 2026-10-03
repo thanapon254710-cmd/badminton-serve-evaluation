@@ -639,7 +639,7 @@
 
       <div class="work-header">
         <div id="status">
-          Side camera: Point 1 of 7
+          Drag any point to correct it.
           <span class="role"></span>
         </div>
         {% if sync_job_id %}
@@ -650,12 +650,19 @@
       </div>
 
       <div class="controls">
-        <script id="calib-config" type="application/json">{"num_points": {{ num_points }}, "gcp_labels": {{ gcp_labels | tojson }}}</script>
+        <script id="calib-config" type="application/json">{
+          "num_points": {{ num_points }},
+          "gcp_labels": {{ gcp_labels | tojson }},
+          "side_guess": {{ side_guess | tojson }},
+          "back_guess": {{ back_guess | tojson }},
+          "side_confidence": {{ side_confidence | tojson }},
+          "back_confidence": {{ back_confidence | tojson }},
+          "side_source": {{ side_source | tojson }},
+          "back_source": {{ back_source | tojson }}
+        }</script>
 
-        <button class="btn" id="undoBtn" type="button">Undo</button>
-        <button class="btn" id="resetBtn" type="button">Reset</button>
-        <span class="hint">keys: Z = undo &nbsp;&middot;&nbsp; R = reset</span>
-
+        <button class="btn" id="resetBtn" type="button">Reset to Auto</button>
+        <span class="hint">key: R = reset current camera to its auto guess</span>
         <div class="cam-tabs" id="camTabs">
           <button type="button" class="cam-tab" id="tabSide" data-cam="side">
             <span class="dot"></span> Side camera
@@ -687,6 +694,9 @@ const CALIB_CONFIG = JSON.parse(document.getElementById("calib-config").textCont
 const NUM_POINTS = CALIB_CONFIG.num_points;
 const GCP_LABELS = CALIB_CONFIG.gcp_labels || [];
 
+// Rectangle edges walk 3-4-6-5, NOT 3-4-5-6: GCP4->GCP5 is the box's diagonal.
+const RECT_WALK = [3, 4, 6, 5];
+
 const sideCanvas = document.getElementById("sideCanvas");
 const backCanvas = document.getElementById("backCanvas");
 const sideCtx = sideCanvas.getContext("2d");
@@ -700,25 +710,37 @@ const backImg = new Image();
 backImg.src = "/static/uploads/back_frame.jpg";
 backImg.onload = () => redraw("back");
 
-let sidePoints = [];
-let backPoints = [];
+// Pre-populated from the server's auto guess. `edited` flips true once
+// the user drags a point, after which it's trusted regardless of confidence.
+let sidePoints = CALIB_CONFIG.side_guess.map(p => p.slice());
+let backPoints = CALIB_CONFIG.back_guess.map(p => p.slice());
+const sideOriginal = CALIB_CONFIG.side_guess.map(p => p.slice());
+const backOriginal = CALIB_CONFIG.back_guess.map(p => p.slice());
+let sideConfidence = CALIB_CONFIG.side_confidence.slice();
+let backConfidence = CALIB_CONFIG.back_confidence.slice();
+let sideEdited = CALIB_CONFIG.side_confidence.map(() => false);
+let backEdited = CALIB_CONFIG.back_confidence.map(() => false);
+
 let currentView = "side";
 let userPinnedView = false;
+let dragging = null; // { cam, index } while a marker is being dragged
 
-function pointsFor(cam) {
-  return cam === "side" ? sidePoints : backPoints;
+const pointsFor     = cam => cam === "side" ? sidePoints : backPoints;
+const confidenceFor = cam => cam === "side" ? sideConfidence : backConfidence;
+const editedFor     = cam => cam === "side" ? sideEdited : backEdited;
+const originalFor   = cam => cam === "side" ? sideOriginal : backOriginal;
+const canvasFor     = cam => cam === "side" ? sideCanvas : backCanvas;
+const ctxFor        = cam => cam === "side" ? sideCtx : backCtx;
+const imgFor        = cam => cam === "side" ? sideImg : backImg;
+
+function needsReview(cam, i) {
+  return confidenceFor(cam)[i] === "low" && !editedFor(cam)[i];
 }
 
-function canvasFor(cam) {
-  return cam === "side" ? sideCanvas : backCanvas;
-}
-
-function ctxFor(cam) {
-  return cam === "side" ? sideCtx : backCtx;
-}
-
-function imgFor(cam) {
-  return cam === "side" ? sideImg : backImg;
+function unresolvedCount(cam) {
+  let n = 0;
+  for (let i = 0; i < NUM_POINTS; i++) if (needsReview(cam, i)) n++;
+  return n;
 }
 
 function redraw(cam) {
@@ -728,178 +750,174 @@ function redraw(cam) {
   const points = pointsFor(cam);
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-
   if (img.complete && img.naturalWidth > 0) {
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
   }
-
-  points.forEach((p, i) => drawPoint(ctx, p[0], p[1], `GCP${i}`));
+  drawRect(ctx, points, cam);
+  points.forEach((p, i) => drawPoint(ctx, cam, i));
 }
 
-function drawPoint(ctx, x, y, label) {
-  ctx.fillStyle = "#c0392b";
+// GCP3-4-6-5 overlay: should sit on the real right-side service-box
+// floor rectangle. If it looks mirrored/rotated vs. the real court,
+// near/far or center/right labels are swapped.
+function drawRect(ctx, points, cam) {
+  if (RECT_WALK.some(i => !points[i])) return;
   ctx.beginPath();
-  ctx.arc(x, y, 6, 0, 2 * Math.PI);
+  RECT_WALK.forEach((i, k) => {
+    const [x, y] = points[i];
+    if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.closePath();
+  ctx.strokeStyle = "rgba(0, 200, 255, 0.85)";
+  // Keep the original side-view overlay size; use the larger version only for back view.
+  ctx.lineWidth = cam === "back" ? 3 : 2;
+  ctx.setLineDash(cam === "back" ? [8, 5] : [6, 4]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawPoint(ctx, cam, i) {
+  const [x, y] = pointsFor(cam)[i];
+  const review = needsReview(cam, i);
+  const isDragging = dragging && dragging.cam === cam && dragging.index === i;
+
+  ctx.fillStyle = review ? "#e8a23a" : "#2ecc71";
+  ctx.beginPath();
+  const markerRadius = cam === "back"
+    ? (isDragging ? 13 : 10)
+    : (isDragging ? 9 : 7);
+  ctx.arc(x, y, markerRadius, 0, 2 * Math.PI);
   ctx.fill();
 
-  ctx.lineWidth = 2;
+  ctx.lineWidth = cam === "back" ? 3 : 2;
   ctx.strokeStyle = "#fff";
   ctx.stroke();
 
-  ctx.fillStyle = "#e8b13a";
-  ctx.font = "bold 15px 'JetBrains Mono', monospace";
-  ctx.fillText(label, x + 10, y - 10);
-}
-
-function activeCamera() {
-  if (sidePoints.length < NUM_POINTS) return "side";
-  if (backPoints.length < NUM_POINTS) return "back";
-  return null;
+  ctx.fillStyle = cam === "side"
+  ? (review ? "#e8a23a" : "#000")
+  : (review ? "#e8a23a" : "#dfe6e9");
+  ctx.font = cam === "back"
+    ? "bold 25px 'JetBrains Mono', monospace"
+    : "bold 15px 'JetBrains Mono', monospace";
+  const labelOffset = cam === "back" ? 14 : 11;
+  ctx.fillText(`GCP${i}${review ? " ?" : ""}`, x + labelOffset, y - labelOffset);
 }
 
 function setView(cam, pinned) {
   currentView = cam;
-
   if (pinned) userPinnedView = true;
-
-  const cam2 = activeCamera();
 
   document.getElementById("stageSide").classList.toggle("shown", cam === "side");
   document.getElementById("stageBack").classList.toggle("shown", cam === "back");
-
-  sideCanvas.classList.toggle("inactive", !(cam === "side" && cam2 === "side"));
-  backCanvas.classList.toggle("inactive", !(cam === "back" && cam2 === "back"));
-
-  document.getElementById("stageSide").classList.toggle(
-    "viewonly", cam === "side" && cam2 !== "side"
-  );
-  document.getElementById("stageBack").classList.toggle(
-    "viewonly", cam === "back" && cam2 !== "back"
-  );
+  sideCanvas.classList.toggle("inactive", cam !== "side");
+  backCanvas.classList.toggle("inactive", cam !== "back");
 
   document.getElementById("tabSide").classList.toggle("selected", cam === "side");
   document.getElementById("tabBack").classList.toggle("selected", cam === "back");
+  document.getElementById("tabSide").classList.toggle("done", unresolvedCount("side") === 0);
+  document.getElementById("tabBack").classList.toggle("done", unresolvedCount("back") === 0);
 
-  document.getElementById("tabSide").classList.toggle(
-    "done", sidePoints.length === NUM_POINTS
-  );
-  document.getElementById("tabBack").classList.toggle(
-    "done", backPoints.length === NUM_POINTS
-  );
-
-  document.getElementById("guideTop").classList.toggle("active", cam !== null);
+  document.getElementById("guideTop").classList.add("active");
 
   redraw("side");
   redraw("back");
 }
 
-document.getElementById("tabSide").addEventListener(
-  "click", () => setView("side", true)
-);
-
-document.getElementById("tabBack").addEventListener(
-  "click", () => setView("back", true)
-);
+document.getElementById("tabSide").addEventListener("click", () => setView("side", true));
+document.getElementById("tabBack").addEventListener("click", () => setView("back", true));
 
 function updateStatus() {
   const status = document.getElementById("status");
-  const cam = activeCamera();
   const evalBtn = document.getElementById("evaluateBtn");
+  const sideLeft = unresolvedCount("side");
+  const backLeft = unresolvedCount("back");
 
-  if (
-    !userPinnedView ||
-    (cam !== null &&
-      currentView !== cam &&
-      pointsFor(currentView).length === NUM_POINTS)
-  ) {
-    userPinnedView = false;
-  }
+  setView(currentView, false);
+  evalBtn.disabled = false; // all 7 markers always exist; just nudge to review
 
-  const viewCam =
-    (cam === null)
-      ? currentView
-      : (userPinnedView ? currentView : cam);
-
-  setView(viewCam, false);
-
-  if (cam === null) {
-    status.innerHTML = "All points collected &mdash; ready to evaluate.";
-    evalBtn.disabled = false;
+  if (sideLeft === 0 && backLeft === 0) {
+    status.innerHTML = "All points look confirmed &mdash; check the cyan rectangle, then evaluate.";
     return;
   }
 
-  evalBtn.disabled = true;
-
-  const idx = pointsFor(cam).length;
-  const pointNumber = idx + 1;
-  const label = GCP_LABELS[idx] || "";
-
+  const parts = [];
+  if (sideLeft > 0) parts.push(`side camera: ${sideLeft} unconfirmed`);
+  if (backLeft > 0) parts.push(`back camera: ${backLeft} unconfirmed`);
   status.innerHTML =
-    `${cam === "side" ? "Side" : "Back"} camera: Point ${pointNumber} of ${NUM_POINTS}` +
-    (label ? ` <span class="role">(GCP${idx} &mdash; ${label})</span>` : "");
+    `<span class="role">Orange points (marked "?") are auto-detected guesses &mdash; drag them into place. ` +
+    parts.join(", ") + `.</span>`;
 }
 
-function handleClick(cam, e) {
-  if (activeCamera() !== cam) return;
-
+function canvasPos(cam, e) {
   const canvas = canvasFor(cam);
   const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / rect.width;
-  const scaleY = canvas.height / rect.height;
-
-  const x = (e.clientX - rect.left) * scaleX;
-  const y = (e.clientY - rect.top) * scaleY;
-
-  pointsFor(cam).push([x, y]);
-
-  redraw(cam);
-  updateStatus();
+  return [
+    (e.clientX - rect.left) * (canvas.width / rect.width),
+    (e.clientY - rect.top) * (canvas.height / rect.height),
+  ];
 }
 
-sideCanvas.addEventListener("click", (e) => handleClick("side", e));
-backCanvas.addEventListener("click", (e) => handleClick("back", e));
-
-function editableCamera() {
-  return activeCamera() || currentView;
+function nearestPointIndex(cam, x, y, maxDist) {
+  let best = -1, bestDist = maxDist;
+  pointsFor(cam).forEach((p, i) => {
+    const d = Math.hypot(p[0] - x, p[1] - y);
+    if (d < bestDist) { bestDist = d; best = i; }
+  });
+  return best;
 }
 
-function undoLast() {
-  let cam = editableCamera();
+function attachDragHandlers(cam) {
+  const canvas = canvasFor(cam);
+  // Only make the larger hit area for the back-view markers.
+  const HIT_RADIUS = cam === "back" ? 22 : 18;
 
-  if (cam === "back" && backPoints.length === 0 && sidePoints.length > 0) {
-    cam = "side";
-  }
-
-  const points = pointsFor(cam);
-
-  if (points.length > 0) {
-    points.pop();
+  canvas.addEventListener("mousedown", (e) => {
+    const [x, y] = canvasPos(cam, e);
+    const idx = nearestPointIndex(cam, x, y, HIT_RADIUS);
+    if (idx === -1) return;
+    dragging = { cam, index: idx };
     redraw(cam);
-  }
+  });
 
-  updateStatus();
+  canvas.addEventListener("mousemove", (e) => {
+    if (!dragging || dragging.cam !== cam) return;
+    const [x, y] = canvasPos(cam, e);
+    pointsFor(cam)[dragging.index] = [
+      Math.max(0, Math.min(canvas.width, x)),
+      Math.max(0, Math.min(canvas.height, y)),
+    ];
+    redraw(cam);
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (!dragging || dragging.cam !== cam) return;
+    editedFor(cam)[dragging.index] = true;
+    dragging = null;
+    redraw(cam);
+    updateStatus();
+  });
 }
+
+attachDragHandlers("side");
+attachDragHandlers("back");
 
 function resetCurrentCamera() {
-  const cam = editableCamera();
+  const cam = currentView;
   const points = pointsFor(cam);
-
-  if (points.length === 0) return;
-
-  points.length = 0;
+  const original = originalFor(cam);
+  for (let i = 0; i < NUM_POINTS; i++) {
+    points[i] = original[i].slice();
+    editedFor(cam)[i] = false;
+  }
   redraw(cam);
   updateStatus();
 }
 
-document.getElementById("undoBtn").addEventListener("click", undoLast);
 document.getElementById("resetBtn").addEventListener("click", resetCurrentCamera);
 
 document.addEventListener("keydown", (e) => {
   const tag = (e.target.tagName || "").toLowerCase();
-
   if (tag === "input" || tag === "select" || tag === "textarea") return;
-
-  if (e.key === "z" || e.key === "Z") undoLast();
   if (e.key === "r" || e.key === "R") resetCurrentCamera();
 });
 
