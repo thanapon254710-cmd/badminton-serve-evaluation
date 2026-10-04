@@ -68,7 +68,7 @@ pip install -r requirements.txt
 
 ## Usage
 
-### Option 1: Web App
+### Web App
 
 ```bash
 python app.py
@@ -100,32 +100,6 @@ Known limitations, worth knowing before trusting the auto-guess blindly:
 - None of this has been validated against real match footage with varied lighting/backgrounds beyond initial testing — expect to need to retune thresholds (e.g. the HSV white-tape range or Hough `minLineLength` in `calibrate_core.py`) for your specific gym/lighting setup if detection is consistently off.
 
 Once a calibration is saved, it's stored as a landmark for that camera, so the *next* session for the same rig should start from a landmark match (green, high-confidence) rather than line detection.
-
-### Option 2: Command Line
-
-**Full pipeline** — place your model weights at `models/best.pt` and your calibration file at `court_calibration.npz`, then edit the video paths in `run_pipeline.py` as needed:
-
-```bash
-python run_pipeline.py
-```
-
-This prints the detected 3D trajectory points followed by the serve evaluation report.
-
-**Synchronization only** — to align two folders of extracted frames independently of the web app:
-
-```bash
-python matching.py <folder_a> <folder_b> --out matched.json
-```
-
-`folder_a` and `folder_b` should each contain the extracted frames of one camera. The output JSON lists the 1-to-1 matched filename pairs and is used to build the synchronized videos consumed by triangulation.
-
-**Calibration only** — to (re)calibrate interactively from still images:
-
-```bash
-python calibrate.py
-```
-
-Update `SIDE_IMAGE` / `BACK_IMAGE` at the top of the script to point at your calibration frames first; it writes `court_calibration.npz`.
 
 ### Training the Detector
 
