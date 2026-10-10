@@ -66,11 +66,23 @@ LANDING_WEIGHT = 50.0
 NET_CLEARANCE_WEIGHT = 30.0
 PEAK_HEIGHT_WEIGHT = 20.0
 
-# Landing placement uses a smooth distance curve. A larger sigma makes
-# the score more forgiving. sigma=1.00 m means a landing 1.48 m from
-# the nearest target still receives meaningful credit rather than an
-# abrupt zero.
-LANDING_SCORE_SIGMA_M = 1.00
+# Landing placement: linear distance ramp. All four corners of the
+# scoring box (GCP3-GCP6) are targets, for both serve types.
+#   d     = distance from the landing point to the NEAREST of the four GCPs
+#   score = 100 * max(0, 1 - d / LANDING_ZERO_SCORE_DISTANCE_M)
+# The zero-score distance is the distance from the box center
+# (4.34, 1.295) to a corner, so the score is 100 on any GCP and 0 at the
+# center of the box (~2.69 m).
+LANDING_GCPS = (
+    ("GCP3", np.array([SHORT_SERVICE_LINE_X, 0.00])),
+    ("GCP4", np.array([SHORT_SERVICE_LINE_X, COURT_Y_MAX])),
+    ("GCP5", np.array([BACK_BOUNDARY_X, 0.00])),
+    ("GCP6", np.array([BACK_BOUNDARY_X, COURT_Y_MAX])),
+)
+LANDING_ZERO_SCORE_DISTANCE_M = float(np.hypot(
+    (BACK_BOUNDARY_X - SHORT_SERVICE_LINE_X) / 2.0,
+    COURT_Y_MAX / 2.0,
+))
 
 # Short serve: lower clearance is preferred.
 # <= 0.20 m -> full 30 points.
@@ -241,45 +253,28 @@ def _evaluate_landing_status(landing_pt, serve_type=None):
     }
 
 
-def _landing_target_score(landing_pt, serve_type):
+def _landing_target_score(landing_pt, serve_type=None):
     """
     Return landing-placement score on a 0..100 scale.
 
-    The score is based on Euclidean distance to the nearer serve-specific
-    GCP. It is deliberately smooth rather than having a hard cutoff.
+    Linear ramp on the Euclidean distance to the nearest of the four box
+    corners (GCP3-GCP6):
+        GCP3 = (1.98, 0.00)   GCP4 = (1.98, 2.59)
+        GCP5 = (6.70, 0.00)   GCP6 = (6.70, 2.59)
+    50 on any GCP, 0 at the center of the box (4.34, 1.295).
 
-    Short:
-        GCP3 = (1.98, 0.00)
-        GCP4 = (1.98, 2.59)
-
-    High:
-        GCP5 = (6.70, 0.00)
-        GCP6 = (6.70, 2.59)
+    `serve_type` is accepted so existing callers keep working, but it no
+    longer changes this component -- all four corners are targets for
+    both serve types.
     """
     point = np.asarray(landing_pt, dtype=np.float64)
 
-    if serve_type == "short_front_corner":
-        gcp_a = np.array([1.98, 0.00], dtype=np.float64)
-        gcp_b = np.array([1.98, 2.59], dtype=np.float64)
-        name_a, name_b = "GCP3", "GCP4"
-    elif serve_type == "high_back_corner":
-        gcp_a = np.array([6.70, 0.00], dtype=np.float64)
-        gcp_b = np.array([6.70, 2.59], dtype=np.float64)
-        name_a, name_b = "GCP5", "GCP6"
-    else:
-        return 0.0, float("nan"), "unknown target"
+    nearest_dist, nearest_name = min(
+        (float(np.linalg.norm(point - xy)), name) for name, xy in LANDING_GCPS
+    )
 
-    dist_a = float(np.linalg.norm(point - gcp_a))
-    dist_b = float(np.linalg.norm(point - gcp_b))
-    nearest_dist = min(dist_a, dist_b)
-    nearest_name = name_a if dist_a <= dist_b else name_b
-
-    # Gaussian decay:
-    #   d=0      -> 100
-    #   d=sigma  -> 60.7
-    #   d=1.48m  -> about 33.5 when sigma=1.00m
-    score = 100.0 * np.exp(
-        -(nearest_dist ** 2) / (2.0 * LANDING_SCORE_SIGMA_M ** 2)
+    score = 100 * max(
+        0.0, 1.0 - nearest_dist / LANDING_ZERO_SCORE_DISTANCE_M
     )
     score = float(np.clip(score, 0.0, 100.0))
 
@@ -406,10 +401,8 @@ def evaluate_serve_performance(trajectory_data, serve_type="auto"):
     # ---------------------------------------------------------------
     # Three independent score components.
     # ---------------------------------------------------------------
-    landing_score_100, dist_err, nearest_gcp = _landing_target_score(
-        landing_pt, serve_type
-    )
-    landing_points = LANDING_WEIGHT * (landing_score_100 / 100.0)
+    landing_score, dist_err, nearest_gcp = _landing_target_score(landing_pt, serve_type)
+    landing_points = LANDING_WEIGHT * (landing_score / 100.0)
 
     net_points = _net_clearance_score(net_clearance, serve_type)
     peak_points = _peak_height_score(max_height, serve_type)
@@ -484,7 +477,7 @@ def evaluate_serve_performance(trajectory_data, serve_type="auto"):
         "landing_target": {
             "gcp": nearest_gcp,
             "distance_m": dist_err,
-            "score_percent": landing_score_100,
+            "score_percent": landing_score,
         },
         "scoring_weights": {
             "landing_placement": LANDING_WEIGHT,

@@ -153,9 +153,9 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
       <div class="landing-title">Shuttlecock landing position</div>
       <div class="map-frame">
         <img src="/static/guide/top_view_spot.jpg" alt="Top view reference court">
-        {% set image_w=1614 %}{% set image_h=1534 %}
-        {% set origin_x_px=804 %}{% set origin_y_px=136 %}{% set depth_end_y_px=1379 %}
-        {% set left_y_px=304 %}{% set right_y_px=1301 %}{% set court_width_m=5.18 %}{% set court_depth_m=6.70 %}
+        {% set image_w=1297 %}{% set image_h=1262 %}
+        {% set origin_x_px=657 %}{% set origin_y_px=4 %}{% set depth_end_y_px=1223 %}
+        {% set left_y_px=167 %}{% set right_y_px=1152 %}{% set court_width_m=5.18 %}{% set court_depth_m=6.70 %}
         {% set landing_px=origin_x_px+(landing_y/court_width_m)*(right_y_px-left_y_px) %}
         {% set landing_py=origin_y_px+(landing_x/court_depth_m)*(depth_end_y_px-origin_y_px) %}
         <div class="landing-marker {{ 'landing-in' if landing_in else 'landing-out' }}" style="left:{{ (landing_px/image_w*100)|round(3) }}%;top:{{ (landing_py/image_h*100)|round(3) }}%">
