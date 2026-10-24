@@ -9,7 +9,7 @@ A computer-vision system that scores badminton serves for legality and accuracy.
 3. **Automatic synchronization** — `matching.py` detects the shuttlecock in each frame of both views and builds a per-camera motion signature (x, y, velocity magnitude, acceleration magnitude). It assumes both cameras were started together (e.g. a manual "1, 2, 3, click" start) and only searches a small window of starting lags — up to 7 frames — right at the beginning of the clips, rather than sliding across the whole video. Whichever camera's clip is shorter becomes the time base: every one of its frames is paired 1-to-1 with a consecutive frame of the longer clip at the best-matching start offset, and any leftover frames at the tail of the longer clip are dropped. The app saves the result as new synchronized videos (`side_sync.mp4` / `back_sync.mp4`) plus a `matched.json` record that also includes the chosen offset and a match-confidence score.
 4. **Calibration** — Ground control points (GCPs) on the court are mapped in each camera view to real-world coordinates, producing a projection matrix per camera (`calibrate.py` / `calibrate_core.py`). The calibration frames used are the first synchronized pair, so both cameras are calibrated against the exact same instant. The web app's calibration page is semi-automatic: `calibrate_core.auto_detect_gcps` proposes an initial pixel position for all 7 GCPs on each camera before the user looks at anything, and `calibrate.html` opens with those positions already placed as draggable markers rather than an empty canvas to click through. Points the auto-detector is confident about are marked green; points it isn't sure about (most often the net markers, which are harder to detect than the floor corners) are marked orange and flagged "?" until the user drags them into place. A dashed rectangle connecting GCP3→GCP4→GCP6→GCP5 (the real right-side service-box floor rectangle — note the walk order, GCP4→GCP5 is the box's diagonal, not an edge) is drawn on top of the frame as a visual sanity check: if it doesn't line up with the real court lines, the auto-guess got something wrong and needs correcting. See "Semi-automatic calibration" under Usage below for how the guess itself is produced and what its known limitations are.
 5. **Triangulation** — Shuttlecock detections from the synchronized videos are combined with the calibration data to reconstruct the shuttlecock's 3D trajectory (X, Y, Z per frame) (`triangulate.py`). The tracker also reports per-camera motion diagnostics, used to flag likely bad detections (see below).
-6. **Evaluation** — The 3D trajectory's true floor-landing point is estimated (interpolating to Z = 0 past the apex, not just the last tracked frame), the serve is auto-classified as short or high/long from landing depth, and it's scored against the classified serve's rules — landing placement, net clearance, and peak height (`evaluator.py`).
+6. **Evaluation** — The 3D trajectory's true floor-landing point is estimated (interpolating to Z = 0 past the apex, not just the last tracked frame; see Notes), the serve is auto-classified as short or high/long from landing depth, and it's scored against the classified serve's rules — landing placement (distance to the nearest drop-box corner), net clearance, and peak height (`evaluator.py`).
 7. **Visualization** — Results are shown as an interactive dashboard with a trajectory chart and landing map (`app.py`, Flask web app), or printed as a CLI report.
 
 Both the frame-synchronization step and the evaluation step run as background jobs that the browser polls for progress, so large videos don't block the request.
@@ -24,7 +24,7 @@ Both the frame-synchronization step and the evaluation step run as background jo
 | `calibrate.py` / `calibrate_core.py` | Court calibration: solves for each camera's projection matrix from 7 ground control points via normalized DLT + nonlinear reprojection refinement. `calibrate.py` is the interactive CLI (click the GCPs on a still image, fully manual — it does not use the auto-detection below). `calibrate_core.py` holds the shared math, GCP definitions, and camera metadata used by both the CLI and the web app, plus the web app's semi-automatic calibration: `auto_detect_gcps` (best-effort initial GCP guess — landmark feature-matching first, classical court-line detection as a fallback), `match_against_landmarks` / `save_landmark` / `list_landmarks` (the per-camera landmark history used for that feature-matching). |
 | `calibration_landmarks/` | Per-camera history (up to 5 most recent, oldest evicted) of confirmed web-app calibrations — each a saved frame plus its 7 confirmed GCP pixel points. Used by `auto_detect_gcps` to seed future calibrations on the same camera rig via feature matching instead of re-running line detection from scratch. Created automatically; safe to delete to force fresh line-detection next time. |
 | `triangulate.py` | `BadmintonTracker3D` — runs YOLO shuttlecock detection on both synchronized video feeds, triangulates 3D positions via DLT, and reports per-camera motion diagnostics. |
-| `evaluator.py` | `evaluate_serve_performance` — estimates the true landing point, auto-classifies the serve type, and scores it (landing placement, net clearance, peak height) against the preferred drop box and target line. |
+| `evaluator.py` | `evaluate_serve_performance` — estimates the true landing point, auto-classifies the serve type, and scores it (landing placement, net clearance, peak height) against the preferred drop box (IN/OUT) and the four drop-box corner targets (landing placement). |
 | `train.py` | Trains the YOLOv8 shuttlecock-detection model on `shuttle_dataset/`. |
 | `split_dataset.py` | Splits/prepares the raw dataset into train/val sets for training. |
 | `visualize_check.py` | Utility for visually sanity-checking detections/calibration on sample frames. |
@@ -38,13 +38,22 @@ The evaluator auto-classifies the serve from where the shuttle actually lands (i
 - **`short_front_corner`** ("Short serve") — landing X between the short service line (1.98 m) and 4.72 m. Rewards a low net clearance (ideal ≤ 0.20 m) and a low peak height (ideal ≤ 1.50 m).
 - **`high_back_corner`** ("High serve") — landing X between 4.73 m and the back boundary (6.70 m). Rewards a high net clearance (ideal ≥ 1.00 m) and a high peak height (ideal ≥ 3.50 m).
 
-IN/OUT is judged independently of serve type, against a single preferred drop box (X: 1.98–6.70 m, Y: 0.00–2.59 m); a landing outside that box is OUT and the final score is forced to 0. Score components:
+IN/OUT is judged independently of serve type, against a single preferred drop box (X: 1.98–6.70 m, Y: 0.00–2.59 m, with a ±0.05 m tolerance for triangulation noise); a landing outside that box is OUT and the final score is forced to 0. Internally the short/high split is at X = 4.725 m (the midpoint of 4.72 and 4.73), so no landing in the 0.01 m display gap goes unclassified.
 
-| Component | Weight |
-|---|---|
-| Landing placement (distance to the target line) | 50 pts |
-| Net clearance | 30 pts |
-| Peak height | 20 pts |
+Score components (total 100 pts):
+
+| Component | Weight | How it is scored |
+|---|---|---|
+| Landing placement | 50 pts | Distance `d` from the landing point to the **nearest of the four drop-box corners** (GCP3 = (1.98, 0.00), GCP4 = (1.98, 2.59), GCP5 = (6.70, 0.00), GCP6 = (6.70, 2.59)). Score = `100% × max(0, 1 − d / 2.69 m)`: full points on a corner, 0 at the box center (4.34, 1.295). The same four targets apply to both serve types. |
+| Net clearance | 30 pts | Linear ramp between the thresholds below. Hitting the net (clearance < 0 m) gives 0 pts. |
+| Peak height | 20 pts | Linear ramp between the thresholds below. |
+
+Net clearance and peak height thresholds (linear interpolation between the two values, clamped to 0–full):
+
+| Metric | Short serve | High serve |
+|---|---|---|
+| Net clearance | full at ≤ 0.20 m, 0 pts at ≥ 1.00 m | 0 pts at ≤ 0.20 m, full at ≥ 1.00 m |
+| Peak height | full at ≤ 1.50 m, 0 pts at ≥ 3.50 m | 0 pts at ≤ 2.00 m, full at ≥ 3.50 m |
 
 The full report includes the overall score, serve classification, landing coordinates and status, net clearance, peak height, and a breakdown of each component's points.
 
@@ -112,7 +121,8 @@ python train.py           # trains YOLOv8n on shuttle_dataset/data.yaml
 
 ## Notes
 
-- Net height is assumed to be 1.55 m in the evaluation logic.
+- Net height is assumed to be 1.55 m in the evaluation logic. Net clearance is measured at the trajectory point whose X is closest to the net (X = 0), minus 1.55 m.
+- Landing point: starting from the apex, the evaluator takes the first point at or below Z = 0.15 m and interpolates X/Y to Z = 0. If the trajectory never gets that low, it falls back to the lowest tracked point after the apex.
 - Synchronization assumes the two cameras were started together (manual sync) and only corrects for a small reaction-time lag (up to 7 frames) at the start of the clips — it is **not** designed to find an arbitrary offset anywhere in a long, independently-started recording. It also assumes a constant offset once found (no clock drift during the clip).
 - The tracker flags a camera as "suspect static" if its detected shuttlecock barely moves across the clip — usually a sign the detector locked onto a stationary object (a resting shuttle, the racket, a bright spot on the net) instead of the shuttle in flight. These show up as warnings on the results dashboard rather than failing the evaluation outright. When multiple shuttlecock-like objects are detected in a frame, the tracker now keeps the highest-confidence one rather than whichever the model happened to return first.
 - The web app stores original uploads under `uploads_video/sync_job_<id>/`, synchronized videos as `uploads_video/side_sync.mp4` / `back_sync.mp4`, calibration in `web_calibration.npz`, and matched-pair metadata in `matched.json`. Confirmed calibrations are additionally stored per-camera under `calibration_landmarks/` for future auto-calibration (see "Semi-automatic calibration" above); this grows unbounded across different physical setups since it's keyed only by camera name (`side`/`back`), not by location, so delete it if you move the rig somewhere new and want a clean slate instead of a stale landmark match.

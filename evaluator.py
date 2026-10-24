@@ -7,13 +7,28 @@ import numpy as np
 SHORT_SERVICE_LINE_X = 1.98
 BACK_BOUNDARY_X = 6.70
 
-# Preferred drop box: the ONLY region that is considered IN.
-# (0, 0) is the centre of the net; X is court depth and positive Y is
-# the selected/right side of the singles court.
-PREFERRED_DROP_X_MIN = 1.98
-PREFERRED_DROP_X_MAX = 6.70
-PREFERRED_DROP_Y_MIN = 0.00
-PREFERRED_DROP_Y_MAX = 2.59
+# Service areas. The origin is the net centre, X is court depth from the net
+# and Y is lateral: positive Y = right half, negative Y = left half.
+# Each service area is a drop box with the same X range and a mirrored Y range:
+#   right: Y =  0.00 .. +2.59 m   (the original, default setting)
+#   left : Y = -2.59 ..  0.00 m
+# The four box corners are GCP3..GCP6 for both sides, in the order
+#   GCP3 = (x_min, y_min)  GCP4 = (x_min, y_max)
+#   GCP5 = (x_max, y_min)  GCP6 = (x_max, y_max)
+# which reproduces calibrate_core.WORLD_GCPS_BY_SIDE for both sides.
+SERVICE_AREAS = {
+    "right": {"label": "Right service area", "y_min": 0.00, "y_max": 2.59},
+    "left": {"label": "Left service area", "y_min": -2.59, "y_max": 0.00},
+}
+DEFAULT_SERVICE_SIDE = "right"
+
+# Preferred drop box X range (shared by both sides). Only the box of the
+# selected service side is considered IN.
+PREFERRED_DROP_X_MIN = SHORT_SERVICE_LINE_X
+PREFERRED_DROP_X_MAX = BACK_BOUNDARY_X
+# Right-side Y range kept as module constants for older callers.
+PREFERRED_DROP_Y_MIN = SERVICE_AREAS["right"]["y_min"]
+PREFERRED_DROP_Y_MAX = SERVICE_AREAS["right"]["y_max"]
 
 # Automatic serve classification is based on landing depth inside the
 # preferred drop box:
@@ -26,93 +41,73 @@ SHORT_SERVE_MAX_X = 4.72
 HIGH_SERVE_MIN_X = 4.73
 FRONT_BACK_SPLIT_X = (SHORT_SERVE_MAX_X + HIGH_SERVE_MIN_X) / 2.0
 
-# Compatibility aliases used by older code.
-COURT_Y_MIN = PREFERRED_DROP_Y_MIN
-COURT_Y_MAX = PREFERRED_DROP_Y_MAX
-
-# A shuttle landing on/before the short service line is inside the
-# short-service depth region.  A landing beyond it is OUT for a short serve.
-# Small tolerance accounts for triangulation noise.
+# Small tolerance (m) on the IN/OUT box edges to absorb triangulation noise.
 LANDING_TOLERANCE_M = 0.05
-
-# Target lines used for the landing-accuracy score. Each target is the
-# full width of the line at that depth -- from the center line (Y=0.00)
-# out to the right singles sideline (Y=2.59) -- not a single corner
-# point. A serve landing anywhere along that line is equally "on
-# target" depth-wise; only strays outside the [0, 2.59] width or off
-# the correct depth should cost accuracy points.
-TARGET_SHORT_FRONT = (
-    np.array([SHORT_SERVICE_LINE_X, 0.00]),
-    np.array([SHORT_SERVICE_LINE_X, COURT_Y_MAX]),
-)  # Short service line, center to sideline
-TARGET_HIGH_BACK = (
-    np.array([BACK_BOUNDARY_X, 0.00]),
-    np.array([BACK_BOUNDARY_X, COURT_Y_MAX]),
-)  # Deep baseline, center to sideline
 
 # -----------------------------------------------------------------------
 # Scoring model
 #
-# Total = 100 points:
-#   Landing placement : 50
-#   Net clearance     : 30
-#   Peak height       : 20
+# Each component is scored on its own 0..100 scale:
+#   LPS = Landing Placement Score
+#   NCS = Net Clearance Score
+#   PHS = Peak Height Score
+# and the serve total (0..100) is the weighted average of the three.
+#
+# The weights are the ONE place the weighting decision lives. They default
+# to an equal average (1/3 each); change them here, or pass `weights=` to
+# evaluate_serve_performance(), to test how sensitive the ranking is to the
+# weighting. They are normalised to sum to 1, so any positive numbers work.
 #
 # These thresholds are INITIAL, TUNABLE criteria. They are not BWF rules
 # and should later be calibrated against measured high-level/pro serves.
 # -----------------------------------------------------------------------
-
-LANDING_WEIGHT = 50.0
-NET_CLEARANCE_WEIGHT = 30.0
-PEAK_HEIGHT_WEIGHT = 20.0
+DEFAULT_WEIGHTS = {
+    "landing_placement": 1.0,
+    "net_clearance": 1.0,
+    "peak_height": 1.0,
+}
 
 # Landing placement: linear distance ramp. All four corners of the
 # scoring box (GCP3-GCP6) are targets, for both serve types.
-#   d     = distance from the landing point to the NEAREST of the four GCPs
-#   score = 100 * max(0, 1 - d / LANDING_ZERO_SCORE_DISTANCE_M)
-# The zero-score distance is the distance from the box center
-# (4.34, 1.295) to a corner, so the score is 100 on any GCP and 0 at the
-# center of the box (~2.69 m).
-LANDING_GCPS = (
-    ("GCP3", np.array([SHORT_SERVICE_LINE_X, 0.00])),
-    ("GCP4", np.array([SHORT_SERVICE_LINE_X, COURT_Y_MAX])),
-    ("GCP5", np.array([BACK_BOUNDARY_X, 0.00])),
-    ("GCP6", np.array([BACK_BOUNDARY_X, COURT_Y_MAX])),
-)
+#   d   = distance from the landing point to the NEAREST of the four corners
+#   LPS = 100 * max(0, 1 - d / LANDING_ZERO_SCORE_DISTANCE_M)
+# The zero-score distance is the distance from the box centre to a corner
+# (2.69 m), so LPS is 100 on any corner and 0 at the centre of the box.
+# The box has the same size on both sides, so this is side-independent.
 LANDING_ZERO_SCORE_DISTANCE_M = float(np.hypot(
-    (BACK_BOUNDARY_X - SHORT_SERVICE_LINE_X) / 2.0,
-    COURT_Y_MAX / 2.0,
+    (PREFERRED_DROP_X_MAX - PREFERRED_DROP_X_MIN) / 2.0,
+    (PREFERRED_DROP_Y_MAX - PREFERRED_DROP_Y_MIN) / 2.0,
 ))
 
 # Short serve: lower clearance is preferred.
-# <= 0.20 m -> full 30 points.
-# > 1.00 m -> 0 points.
+# <= 0.20 m -> NCS 100.
+# >= 1.00 m -> NCS 0.
 # Between them -> linear interpolation.
 SHORT_NET_IDEAL_CLEARANCE_M = 0.20
 SHORT_NET_ZERO_SCORE_CLEARANCE_M = 1.00
 
 # Short serve: lower peak is preferred.
-# <= 1.50 m -> full 20 points.
-# > 3.50 m -> 0 points.
+# <= 1.50 m -> PHS 100.
+# >= 3.50 m -> PHS 0.
 # Between them -> linear interpolation.
 SHORT_PEAK_IDEAL_M = 1.50
 SHORT_PEAK_ZERO_SCORE_M = 3.50
 
 # High/long serve: higher clearance is preferred.
-# < 0.20 m -> 0 points.
-# >= 1.00 m -> full 30 points.
+# <= 0.20 m -> NCS 0.
+# >= 1.00 m -> NCS 100.
 # Between them -> linear interpolation.
 HIGH_NET_ZERO_SCORE_CLEARANCE_M = 0.20
 HIGH_NET_IDEAL_CLEARANCE_M = 1.00
 
 # High/long serve: higher peak is preferred.
-# < 2.00 m -> 0 points.
-# >= 3.50 m -> full 20 points.
+# <= 2.00 m -> PHS 0.
+# >= 3.50 m -> PHS 100.
 # Between them -> linear interpolation.
 HIGH_PEAK_ZERO_SCORE_M = 2.00
 HIGH_PEAK_IDEAL_M = 3.50
 
-# Hitting the net is always zero for the net-clearance component.
+# Hitting the net (clearance < 0) is always zero for the NCS.
 NET_HIT_SCORE = 0.0
 
 SERVE_TYPE_LABELS = {
@@ -121,31 +116,42 @@ SERVE_TYPE_LABELS = {
 }
 
 
-def _point_segment_distance(point, seg_start, seg_end):
-    """
-    Shortest distance from `point` to the line segment seg_start->seg_end
-    -- i.e. distance to the closest point actually ON the segment, not the
-    infinite line through it. For a landing point whose Y falls between
-    the segment's endpoints this reduces to pure depth error (perpendicular
-    distance to the line); for a landing point beyond either end it's the
-    ordinary distance to that nearest corner, so landing wide of the
-    sideline (or short of the center line) still costs accuracy points.
-    """
-    point = np.asarray(point, dtype=np.float64)
-    seg_start = np.asarray(seg_start, dtype=np.float64)
-    seg_end = np.asarray(seg_end, dtype=np.float64)
+def _service_area(service_side):
+    """Return (side, area dict) for a side name; raises ValueError if unknown."""
+    side = DEFAULT_SERVICE_SIDE if service_side is None else service_side
+    side = str(side).strip().lower()
+    if side not in SERVICE_AREAS:
+        raise ValueError(
+            f"Unknown service side: {service_side!r} "
+            f"(expected one of {sorted(SERVICE_AREAS)})."
+        )
+    return side, SERVICE_AREAS[side]
 
-    seg_vec = seg_end - seg_start
-    seg_len_sq = float(np.dot(seg_vec, seg_vec))
 
-    if seg_len_sq < 1e-12:
-        # Degenerate (zero-length) segment -- fall back to point distance.
-        return float(np.linalg.norm(point - seg_start))
+def _landing_gcps(service_side):
+    """The four landing-score corner targets (GCP3..GCP6) for a side."""
+    _, area = _service_area(service_side)
+    x0, x1 = PREFERRED_DROP_X_MIN, PREFERRED_DROP_X_MAX
+    y0, y1 = area["y_min"], area["y_max"]
+    return (
+        ("GCP3", np.array([x0, y0])),
+        ("GCP4", np.array([x0, y1])),
+        ("GCP5", np.array([x1, y0])),
+        ("GCP6", np.array([x1, y1])),
+    )
 
-    t = float(np.dot(point - seg_start, seg_vec) / seg_len_sq)
-    t = float(np.clip(t, 0.0, 1.0))
-    closest = seg_start + t * seg_vec
-    return float(np.linalg.norm(point - closest))
+
+def _normalise_weights(weights):
+    """Validate weights and scale them so they sum to 1."""
+    w = dict(DEFAULT_WEIGHTS if weights is None else weights)
+    keys = ("landing_placement", "net_clearance", "peak_height")
+    if set(w) != set(keys):
+        raise ValueError(f"weights must have exactly the keys {keys}.")
+    vals = np.array([float(w[k]) for k in keys], dtype=np.float64)
+    if not np.isfinite(vals).all() or np.any(vals < 0) or vals.sum() <= 0:
+        raise ValueError("weights must be non-negative with a positive sum.")
+    vals = vals / vals.sum()
+    return {k: float(v) for k, v in zip(keys, vals)}
 
 
 def _find_landing_point(pts):
@@ -200,16 +206,19 @@ def _classify_serve_type(landing_x):
     return "high_back_corner"
 
 
-def _evaluate_landing_status(landing_pt, serve_type=None):
+def _evaluate_landing_status(landing_pt, service_side=DEFAULT_SERVICE_SIDE):
     """
-    Determine IN/OUT from the preferred drop box shared by BOTH serves.
+    Determine IN/OUT from the preferred drop box of the selected service
+    side. The box is shared by BOTH serve types.
 
-    Preferred drop box:
-        X = 1.98 .. 6.70 m
-        Y = 0.00 .. 2.59 m
+        right: X = 1.98 .. 6.70 m, Y =  0.00 .. +2.59 m
+        left : X = 1.98 .. 6.70 m, Y = -2.59 ..  0.00 m
 
     Serve type does not change this IN/OUT boundary.
     """
+    _, area = _service_area(service_side)
+    y_min, y_max = area["y_min"], area["y_max"]
+
     x = float(landing_pt[0])
     y = float(landing_pt[1])
     tol = LANDING_TOLERANCE_M
@@ -217,17 +226,15 @@ def _evaluate_landing_status(landing_pt, serve_type=None):
     inside_x = (
         PREFERRED_DROP_X_MIN - tol <= x <= PREFERRED_DROP_X_MAX + tol
     )
-    inside_y = (
-        PREFERRED_DROP_Y_MIN - tol <= y <= PREFERRED_DROP_Y_MAX + tol
-    )
+    inside_y = y_min - tol <= y <= y_max + tol
 
     if inside_x and inside_y:
         return {
             "landing_status": "IN",
             "landing_status_reason": (
-                "Landing is inside the preferred drop box "
-                f"(X={PREFERRED_DROP_X_MIN:.2f}-{PREFERRED_DROP_X_MAX:.2f} m, "
-                f"Y={PREFERRED_DROP_Y_MIN:.2f}-{PREFERRED_DROP_Y_MAX:.2f} m)."
+                f"Landing is inside the preferred drop box ({area['label'].lower()}: "
+                f"X={PREFERRED_DROP_X_MIN:.2f}-{PREFERRED_DROP_X_MAX:.2f} m, "
+                f"Y={y_min:.2f}-{y_max:.2f} m)."
             ),
         }
 
@@ -239,41 +246,47 @@ def _evaluate_landing_status(landing_pt, serve_type=None):
         )
     if not inside_y:
         reasons.append(
-            f"Y={y:.2f} m is outside "
-            f"{PREFERRED_DROP_Y_MIN:.2f}-{PREFERRED_DROP_Y_MAX:.2f} m"
+            f"Y={y:.2f} m is outside {y_min:.2f}-{y_max:.2f} m"
         )
+        # Helpful hint: landed in the mirrored box -> wrong side selected?
+        mirrored = (-y_max - tol <= y <= -y_min + tol)
+        if mirrored and inside_x:
+            reasons.append(
+                "it landed in the opposite service area - check that the "
+                "correct service side was selected"
+            )
 
     return {
         "landing_status": "OUT",
         "landing_status_reason": (
-            "Landing is outside the preferred drop box: "
+            f"Landing is outside the preferred drop box ({area['label'].lower()}): "
             + "; ".join(reasons)
             + "."
         ),
     }
 
 
-def _landing_target_score(landing_pt, serve_type=None):
+def _landing_target_score(landing_pt, service_side=DEFAULT_SERVICE_SIDE):
     """
-    Return landing-placement score on a 0..100 scale.
+    Return the Landing Placement Score (LPS) on a 0..100 scale.
 
     Linear ramp on the Euclidean distance to the nearest of the four box
-    corners (GCP3-GCP6):
+    corners (GCP3-GCP6) of the selected service side. For the right side:
         GCP3 = (1.98, 0.00)   GCP4 = (1.98, 2.59)
         GCP5 = (6.70, 0.00)   GCP6 = (6.70, 2.59)
-    50 on any GCP, 0 at the center of the box (4.34, 1.295).
+    and for the left side the Y values become -2.59 and 0.00.
+    100 on any corner, 0 at the centre of the box.
 
-    `serve_type` is accepted so existing callers keep working, but it no
-    longer changes this component -- all four corners are targets for
-    both serve types.
+    All four corners are targets for both serve types.
     """
     point = np.asarray(landing_pt, dtype=np.float64)
 
     nearest_dist, nearest_name = min(
-        (float(np.linalg.norm(point - xy)), name) for name, xy in LANDING_GCPS
+        (float(np.linalg.norm(point - xy)), name)
+        for name, xy in _landing_gcps(service_side)
     )
 
-    score = 100 * max(
+    score = 100.0 * max(
         0.0, 1.0 - nearest_dist / LANDING_ZERO_SCORE_DISTANCE_M
     )
     score = float(np.clip(score, 0.0, 100.0))
@@ -298,7 +311,7 @@ def _bounded_linear_score(value, low, high, increasing=True):
 
 
 def _net_clearance_score(net_clearance, serve_type):
-    """Return the net-clearance component on a 0..30 scale."""
+    """Return the Net Clearance Score (NCS) on a 0..100 scale."""
     if net_clearance < 0.0:
         return NET_HIT_SCORE
 
@@ -319,11 +332,11 @@ def _net_clearance_score(net_clearance, serve_type):
             increasing=True,
         )
 
-    return float(normalized * NET_CLEARANCE_WEIGHT)
+    return float(normalized * 100.0)
 
 
 def _peak_height_score(max_height, serve_type):
-    """Return the peak-height component on a 0..20 scale."""
+    """Return the Peak Height Score (PHS) on a 0..100 scale."""
     if serve_type == "short_front_corner":
         # Lower is better.
         normalized = _bounded_linear_score(
@@ -341,32 +354,48 @@ def _peak_height_score(max_height, serve_type):
             increasing=True,
         )
 
-    return float(normalized * PEAK_HEIGHT_WEIGHT)
+    return float(normalized * 100.0)
 
 
-def evaluate_serve_performance(trajectory_data, serve_type="auto"):
+def evaluate_serve_performance(
+    trajectory_data,
+    serve_type="auto",
+    service_side=DEFAULT_SERVICE_SIDE,
+    weights=None,
+):
     """
     Evaluate serve quality from a triangulated 3D trajectory.
 
-    Score:
-        Landing placement : 50 pts
-        Net clearance     : 30 pts
-        Peak height       : 20 pts
-        Total             : 100 pts
+    Three component scores, each on its own 0..100 scale:
+        LPS  Landing Placement Score  (distance to nearest drop-box corner)
+        NCS  Net Clearance Score
+        PHS  Peak Height Score
+    Total (0..100) = weighted average of LPS, NCS and PHS. The default is an
+    equal average; see DEFAULT_WEIGHTS / the `weights` argument.
 
     Short serve:
-        lower net clearance -> higher score
-        lower peak height   -> higher score
+        lower net clearance -> higher NCS
+        lower peak height   -> higher PHS
 
     High/long serve:
-        higher net clearance -> higher score
-        higher peak height   -> higher score
+        higher net clearance -> higher NCS
+        higher peak height   -> higher PHS
+
+    `service_side` ("right" or "left") selects which service area is the
+    IN box: right = Y 0..+2.59 m, left = Y -2.59..0 m.
 
     IN/OUT remains separate from scoring. A landing outside the preferred
-    drop box is OUT and the final serve score is forced to 0.
+    drop box is OUT and the final serve score is forced to 0 (the three
+    component scores are still reported).
     """
     if len(trajectory_data) == 0:
         return {"error": "No 3D trajectory points recorded."}
+
+    try:
+        service_side, area = _service_area(service_side)
+        norm_weights = _normalise_weights(weights)
+    except ValueError as exc:
+        return {"error": str(exc)}
 
     pts = np.array(
         [[p["X"], p["Y"], p["Z"]] for p in trajectory_data],
@@ -388,8 +417,8 @@ def evaluate_serve_performance(trajectory_data, serve_type="auto"):
     landing_x = float(landing_pt[0])
     landing_y = float(landing_pt[1])
 
-    # IN/OUT is ALWAYS determined by the preferred drop box.
-    landing_result = _evaluate_landing_status(landing_pt)
+    # IN/OUT is ALWAYS determined by the preferred drop box of the side.
+    landing_result = _evaluate_landing_status(landing_pt, service_side)
 
     # Automatic serve classification is based only on landing X.
     if serve_type == "auto":
@@ -399,27 +428,30 @@ def evaluate_serve_performance(trajectory_data, serve_type="auto"):
         return {"error": f"Unknown serve type: {serve_type}"}
 
     # ---------------------------------------------------------------
-    # Three independent score components.
+    # Three independent component scores, each 0..100.
     # ---------------------------------------------------------------
-    landing_score, dist_err, nearest_gcp = _landing_target_score(landing_pt, serve_type)
-    landing_points = LANDING_WEIGHT * (landing_score / 100.0)
+    lps, dist_err, nearest_gcp = _landing_target_score(landing_pt, service_side)
+    ncs = _net_clearance_score(net_clearance, serve_type)
+    phs = _peak_height_score(max_height, serve_type)
 
-    net_points = _net_clearance_score(net_clearance, serve_type)
-    peak_points = _peak_height_score(max_height, serve_type)
-
-    total_score = landing_points + net_points + peak_points
+    unpenalised_total = (
+        norm_weights["landing_placement"] * lps
+        + norm_weights["net_clearance"] * ncs
+        + norm_weights["peak_height"] * phs
+    )
+    total_score = unpenalised_total
 
     deductions = [
         (
-            f"Landing placement: {landing_points:.1f}/{LANDING_WEIGHT:.0f} pts "
+            f"Landing placement (LPS): {lps:.1f}/100 "
             f"({nearest_gcp}, {dist_err:.2f}m away)"
         ),
         (
-            f"Net clearance: {net_points:.1f}/{NET_CLEARANCE_WEIGHT:.0f} pts "
+            f"Net clearance (NCS): {ncs:.1f}/100 "
             f"({net_clearance:.2f}m above net)"
         ),
         (
-            f"Peak height: {peak_points:.1f}/{PEAK_HEIGHT_WEIGHT:.0f} pts "
+            f"Peak height (PHS): {phs:.1f}/100 "
             f"({max_height:.2f}m)"
         ),
     ]
@@ -433,57 +465,60 @@ def evaluate_serve_performance(trajectory_data, serve_type="auto"):
         total_score = 0.0
         deductions.append(
             f"Serve is OUT ({landing_result['landing_status_reason']}): "
-            "final score set to 0.0 pts"
+            "final score set to 0.0"
         )
 
     final_score = float(np.clip(total_score, 0.0, 100.0))
 
     return {
         "final_score": final_score,
+        "score_before_out_rule": float(np.clip(unpenalised_total, 0.0, 100.0)),
         "max_height_m": max_height,
         "net_clearance_m": net_clearance,
         "landing_coordinate_m": (landing_x, landing_y),
         "landing_status": landing_result["landing_status"],
         "landing_status_reason": landing_result["landing_status_reason"],
+        "service_side": service_side,
+        "service_side_label": area["label"],
         "serve_type": serve_type,
         "serve_type_label": SERVE_TYPE_LABELS.get(serve_type, serve_type),
         "front_back_split_x_m": FRONT_BACK_SPLIT_X,
         "preferred_drop_box": {
             "x_min_m": PREFERRED_DROP_X_MIN,
             "x_max_m": PREFERRED_DROP_X_MAX,
-            "y_min_m": PREFERRED_DROP_Y_MIN,
-            "y_max_m": PREFERRED_DROP_Y_MAX,
+            "y_min_m": area["y_min"],
+            "y_max_m": area["y_max"],
         },
         "serve_classification_ranges": {
             "short": {
-                "x_min_m": SHORT_SERVICE_LINE_X,
+                "x_min_m": PREFERRED_DROP_X_MIN,
                 "x_max_m": SHORT_SERVE_MAX_X,
-                "y_min_m": PREFERRED_DROP_Y_MIN,
-                "y_max_m": PREFERRED_DROP_Y_MAX,
+                "y_min_m": area["y_min"],
+                "y_max_m": area["y_max"],
             },
             "high": {
                 "x_min_m": HIGH_SERVE_MIN_X,
-                "x_max_m": BACK_BOUNDARY_X,
-                "y_min_m": PREFERRED_DROP_Y_MIN,
-                "y_max_m": PREFERRED_DROP_Y_MAX,
+                "x_max_m": PREFERRED_DROP_X_MAX,
+                "y_min_m": area["y_min"],
+                "y_max_m": area["y_max"],
             },
         },
+        # Each component is 0..100; "total" is their weighted average
+        # (0 if the serve is OUT).
+        "component_scores": {"LPS": lps, "NCS": ncs, "PHS": phs},
         "score_breakdown": {
-            "landing_placement": landing_points,
-            "net_clearance": net_points,
-            "peak_height": peak_points,
+            "landing_placement": lps,
+            "net_clearance": ncs,
+            "peak_height": phs,
             "total": final_score,
         },
         "landing_target": {
             "gcp": nearest_gcp,
             "distance_m": dist_err,
-            "score_percent": landing_score,
+            "score_percent": lps,
         },
-        "scoring_weights": {
-            "landing_placement": LANDING_WEIGHT,
-            "net_clearance": NET_CLEARANCE_WEIGHT,
-            "peak_height": PEAK_HEIGHT_WEIGHT,
-        },
+        # Normalised weights (sum to 1) used for the total.
+        "scoring_weights": norm_weights,
         "deductions": deductions,
     }
 
@@ -504,7 +539,12 @@ if __name__ == "__main__":
 
     print("=== Serve Evaluation Report ===")
     print(f"Detected serve type: {report['serve_type_label']}")
+    print(f"Service area: {report['service_side_label']}")
     print(f"Overall Score: {report['final_score']:.1f} / 100")
+    cs = report["component_scores"]
+    print(
+        f"  LPS={cs['LPS']:.1f}  NCS={cs['NCS']:.1f}  PHS={cs['PHS']:.1f}"
+    )
     print(f"Peak Height: {report['max_height_m']:.2f} m")
     print(f"Net Clearance: {report['net_clearance_m']:.2f} m")
     print(
