@@ -316,6 +316,32 @@
     color: #fff;
   }
 
+  a.cam-tab { text-decoration: none; }
+
+  .area-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    margin: 0 0 10px 0;
+  }
+
+  .area-bar .area-label {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--muted);
+  }
+
+  .area-toggle { display: flex; gap: 8px; }
+
+  .area-legend {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+
+  .area-legend span { margin-right: 12px; white-space: nowrap; }
+
   .cam-tab .dot {
     width: 7px;
     height: 7px;
@@ -649,9 +675,27 @@
         {% endif %}
       </div>
 
+      <div class="area-bar" id="areaBar">
+        <span class="area-label">Service area</span>
+        <div class="area-toggle" role="group" aria-label="Service area">
+          {% for opt in service_sides %}
+          <a class="cam-tab area-opt{{ ' selected' if opt.key == service_side else '' }}"
+             href="{{ url_for('calibrate_page', side=opt.key) }}"
+             data-side="{{ opt.key }}"
+             aria-pressed="{{ 'true' if opt.key == service_side else 'false' }}">
+            <span class="dot"></span> {{ opt.label }}
+          </a>
+          {% endfor %}
+        </div>
+        <div class="area-legend">
+          {% for i in range(3, 7) %}<span>GCP{{ i }} = {{ gcp_labels[i] }}</span>{% endfor %}
+        </div>
+      </div>
+
       <div class="controls">
         <script id="calib-config" type="application/json">{
           "num_points": {{ num_points }},
+          "service_side": {{ service_side | tojson }},
           "gcp_labels": {{ gcp_labels | tojson }},
           "side_guess": {{ side_guess | tojson }},
           "back_guess": {{ back_guess | tojson }},
@@ -757,7 +801,8 @@ function redraw(cam) {
   points.forEach((p, i) => drawPoint(ctx, cam, i));
 }
 
-// GCP3-4-6-5 overlay: should sit on the real right-side service-box
+// GCP3-4-6-5 overlay: should sit on the real service-box (the selected
+// service area: right or left)
 // floor rectangle. If it looks mirrored/rotated vs. the real court,
 // near/far or center/right labels are swapped.
 function drawRect(ctx, points, cam) {
@@ -1017,6 +1062,24 @@ async function pollProgress() {
   }
 }
 
+// Switching service area reloads the page with a fresh auto-guess for the
+// other box, which discards any hand-placed points -- ask first if the user
+// has already moved something.
+function pointsEdited() {
+  const moved = (pts, orig) => pts.some((p, i) =>
+    Math.abs(p[0] - orig[i][0]) > 0.5 || Math.abs(p[1] - orig[i][1]) > 0.5);
+  return moved(sidePoints, sideOriginal) || moved(backPoints, backOriginal);
+}
+document.querySelectorAll("#areaBar .area-opt").forEach(link => {
+  link.addEventListener("click", ev => {
+    if (link.dataset.side === CALIB_CONFIG.service_side) { ev.preventDefault(); return; }
+    if (pointsEdited() && !confirm(
+      "Switching service area resets all points to a new auto-guess. Continue?")) {
+      ev.preventDefault();
+    }
+  });
+});
+
 document.getElementById("evaluateBtn").addEventListener("click", async () => {
   clearError();
 
@@ -1030,6 +1093,7 @@ document.getElementById("evaluateBtn").addEventListener("click", async () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        service_side: CALIB_CONFIG.service_side,
         side_points: sidePoints,
         back_points: backPoints,
         side_w: sideCanvas.width,

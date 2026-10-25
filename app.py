@@ -9,7 +9,10 @@ import uuid
 import json
 from flask import Flask, render_template, request, redirect, url_for, jsonify, send_file
 
-from calibrate_core import ( solve_camera, WORLD_GCPS, GCP_LABELS, CAMERA_META, auto_detect_gcps, save_landmark,)
+from calibrate_core import (
+    solve_camera, WORLD_GCPS, GCP_LABELS, CAMERA_META, auto_detect_gcps, save_landmark,
+    SERVICE_SIDES, DEFAULT_SERVICE_SIDE, normalize_service_side, gcp_labels_for, landmark_key,
+)
 from triangulate import BadmintonTracker3D
 from evaluator import evaluate_serve_performance
 
@@ -69,13 +72,36 @@ def build_trajectory_warnings(diagnostics):
     return warnings
 
 
+CALIBRATION_FILE = os.path.join(BASE, "web_calibration.npz")
+
+SERVICE_SIDE_LABELS = {"right": "Right service area", "left": "Left service area"}
+
+
+def read_saved_service_side():
+    """
+    Service side the saved calibration was solved for ("right" / "left").
+
+    The side is stored inside web_calibration.npz next to the projection
+    matrices, because the matrices are only meaningful together with the
+    world coordinates they were solved against. A calibration saved before
+    the left side existed has no such key and is a right-side calibration.
+    """
+    try:
+        with np.load(CALIBRATION_FILE) as calib:
+            if "service_side" in calib.files:
+                return normalize_service_side(str(calib["service_side"]))
+    except (OSError, ValueError):
+        pass
+    return DEFAULT_SERVICE_SIDE
+
+
 def run_evaluation_job(job_id):
     try:
         update_evaluation_job(job_id, status="loading", message="Loading YOLO model…")
 
         tracker = BadmintonTracker3D(
             model_path=MODEL_PATH,
-            calib_file=os.path.join(BASE, "web_calibration.npz")
+            calib_file=CALIBRATION_FILE
         )
 
         def progress_callback(current, total, fps, detected):
@@ -115,7 +141,12 @@ def run_evaluation_job(job_id):
 
         # serve_type defaults to "auto": the evaluator classifies short vs.
         # high/long serve itself from where the shuttle actually landed.
-        report = evaluate_serve_performance(trajectory)
+        # service_side comes from the calibration the trajectory was
+        # triangulated with: right = Y 0..+2.59 m is IN, left = Y -2.59..0 m.
+        report = evaluate_serve_performance(
+            trajectory,
+            service_side=read_saved_service_side(),
+        )
         save_trajectory_chart(
             trajectory,
             os.path.join(STATIC_DIR, "trajectory.png")
@@ -718,8 +749,16 @@ def calibrate_page():
     side_h, side_w = side_img.shape[:2]
     back_h, back_w = back_img.shape[:2]
 
-    side_guess, side_conf, side_source = auto_detect_gcps(side_img, "side")
-    back_guess, back_conf, back_source = auto_detect_gcps(back_img, "back")
+    # Service area being served into. The page reloads with ?side=left /
+    # ?side=right when the toggle is clicked; the default is right. An
+    # unknown value falls back to the default instead of erroring.
+    try:
+        service_side = normalize_service_side(request.args.get("side"))
+    except ValueError:
+        service_side = DEFAULT_SERVICE_SIDE
+
+    side_guess, side_conf, side_source = auto_detect_gcps(side_img, "side", service_side)
+    back_guess, back_conf, back_source = auto_detect_gcps(back_img, "back", service_side)
 
     def as_list(points_dict):
         return [list(points_dict[i]) for i in range(len(WORLD_GCPS))]
@@ -731,7 +770,13 @@ def calibrate_page():
                             side_w=side_w, side_h=side_h,
                             back_w=back_w, back_h=back_h,
                             num_points=len(WORLD_GCPS),
-                            gcp_labels=GCP_LABELS,
+                            gcp_labels=gcp_labels_for(service_side),
+                            service_side=service_side,
+                            service_side_label=SERVICE_SIDE_LABELS[service_side],
+                            service_sides=[
+                                {"key": k, "label": SERVICE_SIDE_LABELS[k]}
+                                for k in SERVICE_SIDES
+                            ],
                             side_meta=CAMERA_META["side"],
                             back_meta=CAMERA_META["back"],
                             side_guess=as_list(side_guess),
@@ -746,12 +791,19 @@ def calibrate_page():
 def save_calibration():
     data = request.get_json()
     try:
-        P_side = solve_camera(data["side_points"], data["side_w"], data["side_h"])
-        P_back = solve_camera(data["back_points"], data["back_w"], data["back_h"])
+        # A missing service_side means an older page: treat it as right.
+        service_side = normalize_service_side(data.get("service_side"))
+        P_side = solve_camera(data["side_points"], data["side_w"], data["side_h"],
+                              service_side=service_side)
+        P_back = solve_camera(data["back_points"], data["back_w"], data["back_h"],
+                              service_side=service_side)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    np.savez(os.path.join(BASE, "web_calibration.npz"), P_side=P_side, P_back=P_back)
+    # Store the side with the matrices: the evaluation step reads it back
+    # so IN/OUT is judged against the box that was actually calibrated.
+    np.savez(CALIBRATION_FILE, P_side=P_side, P_back=P_back,
+             service_side=np.array(service_side))
 
     # Remember this confirmed calibration for future auto-matching.
     # Best-effort: a failure here must not block saving the calibration.
@@ -759,18 +811,18 @@ def save_calibration():
         side_img = cv2.imread(os.path.join(STATIC_DIR, "side_frame.jpg"))
         back_img = cv2.imread(os.path.join(STATIC_DIR, "back_frame.jpg"))
         if side_img is not None:
-            save_landmark(side_img, "side", data["side_points"])
+            save_landmark(side_img, landmark_key("side", service_side), data["side_points"])
         if back_img is not None:
-            save_landmark(back_img, "back", data["back_points"])
+            save_landmark(back_img, landmark_key("back", service_side), data["back_points"])
     except Exception:
         import traceback
         traceback.print_exc()
 
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "service_side": service_side})
 
 @app.route("/run_evaluation", methods=["POST"])
 def run_evaluation():
-    if not os.path.exists(os.path.join(BASE, "web_calibration.npz")):
+    if not os.path.exists(CALIBRATION_FILE):
         return jsonify({"error": "Calibration has not been saved yet."}), 400
 
     job_id = uuid.uuid4().hex

@@ -7,32 +7,103 @@ import cv2
 import numpy as np
 
 # -----------------------------------------------------------------------
-# 3D GCP coordinates (right-side court, origin at net center, floor level)
+# 3D GCP coordinates (origin at net center, floor level; +Y = right half
+# of the court, -Y = left half).
+#
+# GCP0-GCP2 are the net points and are identical for both service sides.
+# GCP3-GCP6 are the four floor corners of the service box being served
+# into, so they depend on the selected service side:
+#   right: box spans Y =  0.00 .. +2.59 m   (the original / default layout)
+#   left : box spans Y = -2.59 ..  0.00 m
 # -----------------------------------------------------------------------
-WORLD_GCPS = np.array([
-    [0.00,  0.00, 1.524],  # GCP0: center of net
-    [0.00, -2.59, 1.550],  # GCP1: left net/post side
-    [0.00,  2.59, 1.550],  # GCP2: right net/post side
-    [1.98,  0.00, 0.000],  # GCP3: short service line / center
-    [1.98,  2.59, 0.000],  # GCP4: short service line / right sideline
-    [6.70,  0.00, 0.000],  # GCP5: back boundary / center
-    [6.70,  2.59, 0.000],  # GCP6: back boundary / right sideline
-], dtype=np.float64)
+SERVICE_SIDES = ("right", "left")
+DEFAULT_SERVICE_SIDE = "right"
+
+WORLD_GCPS_BY_SIDE = {
+    "right": np.array([
+        [0.00,  0.00, 1.524],  # GCP0: center of net
+        [0.00, -2.59, 1.550],  # GCP1: left net/post side
+        [0.00,  2.59, 1.550],  # GCP2: right net/post side
+        [1.98,  0.00, 0.000],  # GCP3: short service line / center
+        [1.98,  2.59, 0.000],  # GCP4: short service line / right sideline
+        [6.70,  0.00, 0.000],  # GCP5: back boundary / center
+        [6.70,  2.59, 0.000],  # GCP6: back boundary / right sideline
+    ], dtype=np.float64),
+    "left": np.array([
+        [0.00,  0.00, 1.524],  # GCP0: center of net
+        [0.00, -2.59, 1.550],  # GCP1: left net/post side
+        [0.00,  2.59, 1.550],  # GCP2: right net/post side
+        [1.98, -2.59, 0.000],  # GCP3: short service line / left sideline
+        [1.98,  0.00, 0.000],  # GCP4: short service line / center
+        [6.70, -2.59, 0.000],  # GCP5: back boundary / left sideline
+        [6.70,  0.00, 0.000],  # GCP6: back boundary / center
+    ], dtype=np.float64),
+}
+
+# Backward-compatible alias: the original right-side table. Older code that
+# imports WORLD_GCPS (e.g. run_pipeline-style scripts) keeps working.
+WORLD_GCPS = WORLD_GCPS_BY_SIDE["right"]
 
 NUM_GCPS = len(WORLD_GCPS)
 
 # Human-readable role of each GCP, in click order. Shared by the CLI
 # (calibrate.py) and the web UI (app.py / calibrate.html) so the
-# instructions shown to the user always match WORLD_GCPS above.
-GCP_LABELS = [
-    "Net -- center tape (1.524 m)",
-    "Net -- left post / left sideline (1.550 m)",
-    "Net -- right post / right sideline (1.550 m)",
-    "Short service line -- center",
-    "Short service line -- right sideline",
-    "Back boundary -- center",
-    "Back boundary -- right sideline",
-]
+# instructions shown to the user always match WORLD_GCPS_BY_SIDE above.
+GCP_LABELS_BY_SIDE = {
+    "right": [
+        "Net -- center tape (1.524 m)",
+        "Net -- left post / left sideline (1.550 m)",
+        "Net -- right post / right sideline (1.550 m)",
+        "Short service line -- center",
+        "Short service line -- right sideline",
+        "Back boundary -- center",
+        "Back boundary -- right sideline",
+    ],
+    "left": [
+        "Net -- center tape (1.524 m)",
+        "Net -- left post / left sideline (1.550 m)",
+        "Net -- right post / right sideline (1.550 m)",
+        "Short service line -- left sideline",
+        "Short service line -- center",
+        "Back boundary -- left sideline",
+        "Back boundary -- center",
+    ],
+}
+GCP_LABELS = GCP_LABELS_BY_SIDE["right"]  # backward-compatible alias
+
+
+def normalize_service_side(side):
+    """Validate a service side ('right' / 'left'); None -> the default."""
+    side = DEFAULT_SERVICE_SIDE if side is None else str(side).strip().lower()
+    if side not in SERVICE_SIDES:
+        raise ValueError(
+            f"Unknown service side: {side!r} (expected one of {list(SERVICE_SIDES)})."
+        )
+    return side
+
+
+def world_gcps_for(side):
+    """World coordinates of the 7 GCPs for a service side."""
+    return WORLD_GCPS_BY_SIDE[normalize_service_side(side)]
+
+
+def gcp_labels_for(side):
+    """Human-readable GCP labels for a service side."""
+    return GCP_LABELS_BY_SIDE[normalize_service_side(side)]
+
+
+def landmark_key(camera_key, side):
+    """
+    Landmark-library key for a (camera, service side) pair.
+
+    A confirmed landmark stores which pixel is "GCP3" etc., and what GCP3
+    *means* differs between the two sides, so the two sides must never share
+    a landmark history. The right side keeps the bare camera key, so landmark
+    folders saved before the left side existed ("side", "back") stay valid.
+    """
+    side = normalize_service_side(side)
+    return camera_key if side == "right" else f"{camera_key}_{side}"
+
 
 # Camera rig metadata, shared by calibrate.py (CLI) and app.py (web UI)
 # so both interfaces describe the same physical setup.
@@ -211,7 +282,7 @@ def reprojection_errors(P, world_points, image_points):
 # ============================================================
 # Public entry point (drop-in replacement)
 # ============================================================
-def solve_camera(img_pts, img_w=None, img_h=None):
+def solve_camera(img_pts, img_w=None, img_h=None, service_side=DEFAULT_SERVICE_SIDE):
     """
     Solve for the 3x4 projection matrix P from the 7 clicked GCP points.
 
@@ -220,6 +291,10 @@ def solve_camera(img_pts, img_w=None, img_h=None):
     img_w / img_h are accepted for compatibility but are not used --
     the DLT solve estimates the effective intrinsics directly from the
     correspondences instead of assuming K.
+
+    `service_side` ("right" default, or "left") selects which world
+    coordinates GCP3-GCP6 correspond to; it must match the side the clicked
+    points were placed for.
     """
     img_pts = np.asarray(img_pts, dtype=np.float64)
     if len(img_pts) != NUM_GCPS:
@@ -227,8 +302,9 @@ def solve_camera(img_pts, img_w=None, img_h=None):
             f"Expected {NUM_GCPS} GCP points, got {len(img_pts)}."
         )
 
-    P_dlt, _ = normalized_dlt(WORLD_GCPS, img_pts)
-    P = refine_projection_matrix(P_dlt, WORLD_GCPS, img_pts)
+    world = world_gcps_for(service_side)
+    P_dlt, _ = normalized_dlt(world, img_pts)
+    P = refine_projection_matrix(P_dlt, world, img_pts)
     return P
 
 # ============================================================
@@ -530,22 +606,29 @@ def _detect_floor_rectangle(image):
         return result, mask
 
     lines_a = _two_strongest_lines(segs, angle_a)  # "cross" lines: near/far
-    lines_b = _two_strongest_lines(segs, angle_b)  # "long" lines: center/sideline
+    lines_b = _two_strongest_lines(segs, angle_b)  # "long" lines: centre line + a sideline
     if len(lines_a) < 2 or len(lines_b) < 2:
         return result, mask
 
     # Role assignment is a HEURISTIC and depends on camera orientation:
-    # larger y = near, smaller x = center. Can come out swapped.
+    # larger y = near, smaller x = "lo" long line, larger x = "hi" long line.
+    # GCP3/GCP5 sit on the "lo" line and GCP4/GCP6 on the "hi" line for BOTH
+    # service sides -- only what the lines *are* differs:
+    #   right box: lo = centre line,    hi = right sideline
+    #   left  box: lo = left sideline,  hi = centre line
+    # (assumes the camera views the left box from the same pose as the
+    # right box, i.e. the left box is the mirror image across the centre
+    # line). Can come out swapped -- the dashed rectangle is the check.
     lines_a.sort(key=lambda l: l[0][1], reverse=True)
     lines_b.sort(key=lambda l: l[0][0])
     near_line, far_line = lines_a[0], lines_a[1]
-    center_line, right_line = lines_b[0], lines_b[1]
+    lo_line, hi_line = lines_b[0], lines_b[1]
 
     candidates = {
-        3: _line_intersection(near_line, center_line),
-        4: _line_intersection(near_line, right_line),
-        5: _line_intersection(far_line, center_line),
-        6: _line_intersection(far_line, right_line),
+        3: _line_intersection(near_line, lo_line),
+        4: _line_intersection(near_line, hi_line),
+        5: _line_intersection(far_line, lo_line),
+        6: _line_intersection(far_line, hi_line),
     }
     margin = -0.1 * max(w, h)  # allow a little outside-frame slack
     for idx, pt in candidates.items():
@@ -557,14 +640,20 @@ def _detect_floor_rectangle(image):
     return result, mask
 
 
-def _lift_net_points(image, mask, floor_points):
+def _lift_net_points(image, mask, floor_points, service_side=DEFAULT_SERVICE_SIDE):
     """
     Approximate GCP0/GCP1/GCP2 from the floor rectangle by extrapolating
-    the center-line/sideline to the net (X=0) and looking for a
-    near-vertical post segment at the right-sideline floor point. A
-    geometric seed, not a measurement -- expect manual correction,
-    especially GCP1 (only mirrored from the right post).
+    the box's long lines to the net (X=0) and looking for a near-vertical
+    post segment at the box's sideline. A geometric seed, not a
+    measurement -- expect manual correction, especially the post on the
+    opposite side of the centre line (only mirrored from the near post).
+
+    Right box: GCP3/GCP5 lie on the centre line, GCP4/GCP6 on the right
+    sideline, so the visible post is the right post (GCP2).
+    Left box: GCP3/GCP5 lie on the left sideline, GCP4/GCP6 on the centre
+    line, so the visible post is the left post (GCP1).
     """
+    side = normalize_service_side(service_side)
     result = {0: None, 1: None, 2: None}
     p3, p4, p5, p6 = (floor_points.get(i) for i in (3, 4, 5, 6))
     if None in (p3, p4, p5, p6):
@@ -573,11 +662,15 @@ def _lift_net_points(image, mask, floor_points):
     p3, p4, p5, p6 = (np.array(p, dtype=np.float64) for p in (p3, p4, p5, p6))
     # p3/p4 at world X=1.98, p5/p6 at X=6.70 -> parametric t where X=0.
     t0 = (0.0 - 1.98) / (6.70 - 1.98)
-    center_floor = p3 + t0 * (p5 - p3)
-    right_floor = p4 + t0 * (p6 - p4)
+    lo_floor = p3 + t0 * (p5 - p3)   # GCP3-GCP5 line, extended to the net
+    hi_floor = p4 + t0 * (p6 - p4)   # GCP4-GCP6 line, extended to the net
+    if side == "right":
+        center_floor, post_floor = lo_floor, hi_floor
+    else:
+        center_floor, post_floor = hi_floor, lo_floor
 
     h, w = mask.shape
-    x, y = right_floor
+    x, y = post_floor
     pad = int(0.12 * w)
     x0, x1 = int(max(0, x - pad)), int(min(w, x + pad))
     y0, y1 = int(max(0, y - int(0.35 * h))), int(min(h, y + int(0.1 * h)))
@@ -595,18 +688,23 @@ def _lift_net_points(image, mask, floor_points):
         best = max(region_segs, key=lambda s: _seg_angle_length(s)[1])
         sx1, sy1, sx2, sy2 = best
         top = (sx1, sy1) if sy1 < sy2 else (sx2, sy2)
-        right_net = np.array(top, dtype=np.float64)
+        post_net = np.array(top, dtype=np.float64)
     else:
         # No post found: rough vertical scale from the floor rectangle.
         floor_span_px = np.linalg.norm(p6 - p3)
         floor_span_m = np.hypot(6.70 - 1.98, 2.59)
         px_per_m = floor_span_px / floor_span_m if floor_span_m > 0 else 0.0
-        right_net = right_floor - np.array([0.0, px_per_m * 1.550])
+        post_net = post_floor - np.array([0.0, px_per_m * 1.550])
 
-    vertical_offset = right_net - right_floor
-    left_floor = 2 * center_floor - right_floor  # mirror across center line
-    left_net = left_floor + vertical_offset
-    center_net = (left_net + right_net) / 2.0
+    vertical_offset = post_net - post_floor
+    other_floor = 2 * center_floor - post_floor  # mirror across centre line
+    other_net = other_floor + vertical_offset
+    center_net = (post_net + other_net) / 2.0
+
+    if side == "right":
+        left_net, right_net = other_net, post_net
+    else:
+        left_net, right_net = post_net, other_net
 
     result[0] = tuple(center_net)
     result[1] = tuple(left_net)
@@ -614,21 +712,28 @@ def _lift_net_points(image, mask, floor_points):
     return result
 
 
-def auto_detect_gcps(image, camera_key):
+def auto_detect_gcps(image, camera_key, service_side=DEFAULT_SERVICE_SIDE):
     """
     Best-effort initial guess for all 7 GCPs, to seed a draggable-marker
     UI. Order: (1) match a previously confirmed landmark calibration,
     (2) line detection for GCP3-6 + geometric lift for GCP0-2,
     (3) generic fallback layout so every point has a draggable position.
 
+    `service_side` ("right" / "left") picks which GCP layout is being
+    guessed. Landmarks are kept separately per (camera, side) -- see
+    landmark_key(). For line detection the left box is assumed to be seen
+    from the same camera pose as the right box (mirror image across the
+    centre line); if that is not true for your rig, expect to drag points.
+
     Returns (points, confidence, source):
       points     -- {idx: (x, y)}, all 7 keys, plain Python floats
       confidence -- {idx: "high" | "low"} ("low" = UI flags for review)
       source     -- short string for the status bar
     """
+    side = normalize_service_side(service_side)
     h, w = image.shape[:2]
 
-    match = match_against_landmarks(image, camera_key)
+    match = match_against_landmarks(image, landmark_key(camera_key, side))
     if match is not None:
         points = {i: (float(match["points"][i][0]), float(match["points"][i][1]))
                   for i in range(NUM_GCPS)}
@@ -640,7 +745,7 @@ def auto_detect_gcps(image, camera_key):
         return points, confidence, source
 
     floor_points, mask = _detect_floor_rectangle(image)
-    net_points = _lift_net_points(image, mask, floor_points)
+    net_points = _lift_net_points(image, mask, floor_points, side)
 
     fallback = {
         0: (0.50 * w, 0.35 * h), 1: (0.30 * w, 0.38 * h), 2: (0.70 * w, 0.38 * h),

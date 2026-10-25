@@ -150,7 +150,7 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
     </div>
 
     <div class="card landing-card">
-      <div class="landing-title">Shuttlecock landing position</div>
+      <div class="landing-title">Shuttlecock landing position{% if report.service_side_label %} &middot; {{ report.service_side_label }}{% endif %}</div>
       <div class="map-frame">
         <img src="/static/guide/top_view_spot.jpg" alt="Top view reference court">
         {% set image_w=1297 %}{% set image_h=1262 %}
