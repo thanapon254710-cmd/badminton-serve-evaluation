@@ -169,6 +169,42 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 4px;
   }
 
+  .target-setup {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--card);
+    padding: 14px 16px 12px;
+    margin: 0 0 14px 0;
+    min-width: 0;
+  }
+  .target-setup legend {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    padding: 0 6px;
+  }
+  .target-help { font-size: 12px; line-height: 1.5; color: var(--muted); margin: 0 0 10px 0; }
+  .target-opt { display: flex; align-items: flex-start; gap: 9px; font-size: 13px; cursor: pointer; margin: 0 0 8px 0; }
+  .target-opt input { margin-top: 3px; }
+  .target-opt small { display: block; font-size: 11.5px; line-height: 1.4; color: var(--muted); margin-top: 1px; }
+  .target-grid-wrap { margin-top: 6px; }
+  #targetGrid { display: block; width: 100%; max-width: 300px; margin: 0 auto; }
+  #targetGrid .tg-hit { fill: transparent; cursor: pointer; }
+  #targetGrid .tg-hit:focus { outline: none; }
+  #targetGrid .tg-dot { fill: #1c2521; pointer-events: none; }
+  #targetGrid .tg-corner { fill: #7b2d9e; }
+  #targetGrid .tg-cell:hover .tg-dot,
+  #targetGrid .tg-cell:focus-within .tg-dot { fill: var(--court-light); }
+  #targetGrid .tg-cell:hover .tg-ring,
+  #targetGrid .tg-cell:focus-within .tg-ring { stroke: var(--court-light); }
+  #targetGrid .tg-ring { fill: none; stroke: transparent; stroke-width: 2; pointer-events: none; }
+  #targetGrid .tg-cell.selected .tg-dot { fill: var(--line); }
+  #targetGrid .tg-cell.selected .tg-ring { stroke: var(--line); stroke-width: 3; }
+  .target-readout { font-size: 12.5px; font-weight: 600; margin-top: 8px; min-height: 18px; }
+  .target-legend { font-size: 11px; line-height: 1.5; color: var(--muted); margin-top: 4px; }
+  .target-status { font-size: 11.5px; margin-top: 8px; min-height: 15px; color: var(--muted); }
+  .target-status.ok { color: var(--court); }
+  .target-status.err { color: var(--danger); }
   .submit-row { margin-top: 8px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
   button.submit {
     font-family: 'Inter', sans-serif; font-weight: 600; font-size: 14.5px;
@@ -354,6 +390,33 @@
         </div>
       </label>
 
+      <fieldset class="target-setup" id="targetSetup">
+        <legend>Landing target</legend>
+        <p class="target-help">What should the landing score aim at? The score is 100 on the target and falls to 0 at 2.69 m away. Saved immediately; used for the next evaluation.</p>
+
+        <label class="target-opt">
+          <input type="radio" name="target_mode" value="corners" checked>
+          <span><strong>All four corners (GCP3&ndash;GCP6)</strong>
+            <small>Default. The nearest corner of the service box is the target.</small></span>
+        </label>
+        <label class="target-opt">
+          <input type="radio" name="target_mode" value="point">
+          <span><strong>One grid point</strong>
+            <small>Pick the one intersection of the grid you want the serve to land on.</small></span>
+        </label>
+
+        <div class="target-grid-wrap" id="targetGridWrap" hidden>
+          <svg id="targetGrid" viewBox="0 0 270 382" role="group" aria-label="Landing target grid"></svg>
+          <div class="target-readout" id="targetReadout"></div>
+          <div class="target-legend">
+            Columns 1&ndash;7 run from the centre line to the sideline; rows 1&ndash;9 run from the short service
+            line (nearest the net) to the back boundary. Purple dots are the four corners. The same grid is
+            used for the left service area, mirrored automatically.
+          </div>
+        </div>
+        <div class="target-status" id="targetStatus" role="status"></div>
+      </fieldset>
+
       <div class="submit-row">
         <button class="submit" type="submit" id="submitBtn">Upload & Extract Frames</button>
         <span class="progress-label" id="progressLabel"></span>
@@ -423,6 +486,117 @@
 </div>
 
 <script>
+// ---- landing target chooser (saved to the server as soon as it changes) ----
+(() => {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.getElementById("targetGrid");
+  const wrap = document.getElementById("targetGridWrap");
+  const readout = document.getElementById("targetReadout");
+  const status = document.getElementById("targetStatus");
+  const radios = document.querySelectorAll('input[name="target_mode"]');
+  let grid = { cols: 7, rows: 9, x_min_m: 1.98, x_max_m: 6.70, width_m: 2.59 };
+  let target = { mode: "corners" };
+
+  const PX = 62, LEFT = 54, TOP = 52;          // drawing scale (px per metre) and box origin
+  const boxW = grid => grid.width_m * PX, boxH = grid => (grid.x_max_m - grid.x_min_m) * PX;
+
+  function say(text, cls) { status.textContent = text; status.className = "target-status " + (cls || ""); }
+
+  function el(name, attrs, parent) {
+    const e = document.createElementNS(NS, name);
+    Object.entries(attrs || {}).forEach(([k, v]) => e.setAttribute(k, v));
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+
+  function pointText(col, row) {
+    const x = grid.x_min_m + row * (grid.x_max_m - grid.x_min_m) / (grid.rows - 1);
+    const y = col * grid.width_m / (grid.cols - 1);
+    return `Row ${row + 1} of ${grid.rows} (${x.toFixed(2)} m from the net), ` +
+           `column ${col + 1} of ${grid.cols} (${y.toFixed(2)} m from the centre line)`;
+  }
+
+  function draw() {
+    svg.innerHTML = "";
+    const w = boxW(grid), h = boxH(grid);
+    el("rect", { x: LEFT, y: TOP, width: w, height: h, fill: "#f3f8f4", stroke: "#7b2d9e", "stroke-width": 2.5 }, svg);
+    el("text", { x: LEFT + w / 2, y: 16, "text-anchor": "middle", "font-size": 10, fill: "#5c6b62" }, svg).textContent = "\u2191 toward the net";
+    for (let c = 0; c < grid.cols; c++) {
+      const x = LEFT + c * w / (grid.cols - 1);
+      el("line", { x1: x, y1: TOP, x2: x, y2: TOP + h, stroke: "#9aa89f", "stroke-width": 1 }, svg);
+      el("text", { x, y: TOP - 8, "text-anchor": "middle", "font-size": 9, fill: "#5c6b62" }, svg).textContent = c + 1;
+    }
+    for (let r = 0; r < grid.rows; r++) {
+      const y = TOP + r * h / (grid.rows - 1);
+      el("line", { x1: LEFT, y1: y, x2: LEFT + w, y2: y, stroke: "#9aa89f", "stroke-width": 1 }, svg);
+      el("text", { x: LEFT - 10, y: y + 3, "text-anchor": "end", "font-size": 9, fill: "#5c6b62" }, svg).textContent = r + 1;
+    }
+    el("text", { x: LEFT, y: TOP + h + 18, "text-anchor": "start", "font-size": 9, fill: "#5c6b62" }, svg).textContent = "centre line";
+    el("text", { x: LEFT + w, y: TOP + h + 18, "text-anchor": "end", "font-size": 9, fill: "#5c6b62" }, svg).textContent = "sideline";
+
+    for (let r = 0; r < grid.rows; r++) {
+      for (let c = 0; c < grid.cols; c++) {
+        const cx = LEFT + c * w / (grid.cols - 1), cy = TOP + r * h / (grid.rows - 1);
+        const corner = (c === 0 || c === grid.cols - 1) && (r === 0 || r === grid.rows - 1);
+        const g = el("g", { class: "tg-cell", "data-col": c, "data-row": r }, svg);
+        el("circle", { class: "tg-ring", cx, cy, r: 8 }, g);
+        el("circle", { class: "tg-dot" + (corner ? " tg-corner" : ""), cx, cy, r: corner ? 5 : 3.5 }, g);
+        const hit = el("circle", { class: "tg-hit", cx, cy, r: 11, tabindex: 0, role: "button",
+                                   "aria-label": pointText(c, r) }, g);
+        const choose = () => choosePoint(c, r);
+        hit.addEventListener("click", choose);
+        hit.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(); } });
+      }
+    }
+  }
+
+  function render() {
+    radios.forEach(r => { r.checked = r.value === target.mode; });
+    const isPoint = target.mode === "point";
+    wrap.hidden = !isPoint;
+    if (isPoint) {
+      svg.querySelectorAll(".tg-cell").forEach(g => {
+        const on = Number(g.dataset.col) === target.col && Number(g.dataset.row) === target.row;
+        g.classList.toggle("selected", on);
+        g.querySelector(".tg-hit").setAttribute("aria-pressed", on ? "true" : "false");
+      });
+      readout.textContent = (target.col === undefined) ? "Click an intersection to choose the target." : "Target: " + pointText(target.col, target.row);
+    }
+  }
+
+  async function save(next) {
+    say("Saving\u2026");
+    try {
+      const resp = await fetch("/api/landing_target", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(next)
+      });
+      const data = await resp.json();
+      if (!resp.ok || data.error) throw new Error(data.error || "Could not save the target.");
+      target = data.target; grid = data.grid;
+      say(target.mode === "point" ? "Saved: the landing score will aim at this grid point."
+                                  : "Saved: the landing score will aim at the nearest corner.", "ok");
+    } catch (err) {
+      say(err.message || "Could not reach the server.", "err");
+    }
+    render();
+  }
+
+  function choosePoint(col, row) { save({ mode: "point", col, row }); }
+
+  radios.forEach(r => r.addEventListener("change", () => {
+    if (r.value === "corners") { save({ mode: "corners" }); }
+    else if (target.mode === "point" && target.col !== undefined) { render(); }
+    else {                                   // switched to "point" but nothing chosen yet: show the grid, save on click
+      target = { mode: "point" }; wrap.hidden = false; render();
+      say("Click an intersection of the grid to choose the target.");
+    }
+  }));
+
+  fetch("/api/landing_target").then(r => r.json()).then(data => {
+    target = data.target; grid = data.grid; draw(); render();
+  }).catch(() => { draw(); render(); say("Could not load the saved target; defaults shown.", "err"); });
+})();
+
 function bytesToSize(bytes) {
   if (!bytes) return "";
   const units = ["B", "KB", "MB", "GB"];

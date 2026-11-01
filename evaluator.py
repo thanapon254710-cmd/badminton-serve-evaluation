@@ -67,17 +67,35 @@ DEFAULT_WEIGHTS = {
     "peak_height": 1.0,
 }
 
-# Landing placement: linear distance ramp. All four corners of the
-# scoring box (GCP3-GCP6) are targets, for both serve types.
-#   d   = distance from the landing point to the NEAREST of the four corners
+# Landing placement: linear distance ramp towards a TARGET chosen by the coach:
+#   "corners" (default) -- all four corners of the scoring box (GCP3-GCP6) are
+#                          targets, for both serve types;
+#   "point"             -- ONE intersection of the 7 x 9 target grid (below).
+#   d   = distance from the landing point to the NEAREST target
 #   LPS = 100 * max(0, 1 - d / LANDING_ZERO_SCORE_DISTANCE_M)
 # The zero-score distance is the distance from the box centre to a corner
-# (2.69 m), so LPS is 100 on any corner and 0 at the centre of the box.
+# (2.69 m), so with corner targets LPS is 100 on any corner and 0 at the centre
+# of the box. The SAME 2.69 m fall-off is used for a single grid point, so LPS
+# means the same thing whichever target is chosen (100 on the target, 0 at
+# 2.69 m or more away) and scores stay comparable between targets.
 # The box has the same size on both sides, so this is side-independent.
 LANDING_ZERO_SCORE_DISTANCE_M = float(np.hypot(
     (PREFERRED_DROP_X_MAX - PREFERRED_DROP_X_MIN) / 2.0,
     (PREFERRED_DROP_Y_MAX - PREFERRED_DROP_Y_MIN) / 2.0,
 ))
+
+# Target grid inside the service box (the coach picks one intersection):
+#   GRID_COLS vertical lines  -> 6 intervals of 2.59/6 = 0.432 m, counted from
+#                                the CENTRE LINE outwards (column 1 = centre
+#                                line, column 7 = sideline), so the same
+#                                column means the same spot in both service areas
+#   GRID_ROWS horizontal lines -> 8 intervals of 4.72/8 = 0.59 m, from the short
+#                                service line (row 1) to the back boundary (row 9)
+# 7 x 9 = 63 intersections, including the four corners (GCP3-GCP6).
+GRID_COLS = 7
+GRID_ROWS = 9
+LANDING_MODE_CORNERS = "corners"
+LANDING_MODE_POINT = "point"
 
 # Short serve: lower clearance is preferred.
 # <= 0.20 m -> NCS 100.
@@ -126,6 +144,84 @@ def _service_area(service_side):
             f"(expected one of {sorted(SERVICE_AREAS)})."
         )
     return side, SERVICE_AREAS[side]
+
+
+def normalize_landing_target(landing_target):
+    """
+    Validate the coach's landing-target choice.
+
+        None / {"mode": "corners"}              -> {"mode": "corners"}
+        {"mode": "point", "col": c, "row": r}   -> same, with c in 0..6 and
+                                                   r in 0..8 as integers
+                                                   (0-based; the UI shows them 1-based)
+    Raises ValueError on anything else.
+    """
+    if landing_target is None:
+        return {"mode": LANDING_MODE_CORNERS}
+    if not isinstance(landing_target, dict):
+        raise ValueError("landing_target must be a dict or None.")
+    mode = str(landing_target.get("mode", LANDING_MODE_CORNERS)).strip().lower()
+    if mode == LANDING_MODE_CORNERS:
+        return {"mode": LANDING_MODE_CORNERS}
+    if mode != LANDING_MODE_POINT:
+        raise ValueError(
+            f"Unknown landing target mode: {mode!r} "
+            f"(expected {LANDING_MODE_CORNERS!r} or {LANDING_MODE_POINT!r})."
+        )
+    try:
+        col, row = landing_target["col"], landing_target["row"]
+    except KeyError:
+        raise ValueError("A grid-point target needs both 'col' and 'row'.")
+    for name, value, count in (("col", col, GRID_COLS), ("row", row, GRID_ROWS)):
+        if isinstance(value, bool) or not isinstance(value, (int, np.integer)) and not (
+            isinstance(value, float) and value.is_integer()
+        ):
+            raise ValueError(f"Grid {name} must be a whole number.")
+        if not 0 <= int(value) < count:
+            raise ValueError(f"Grid {name} must be between 1 and {count}.")
+    return {"mode": LANDING_MODE_POINT, "col": int(col), "row": int(row)}
+
+
+def grid_point_xy(col, row, service_side=DEFAULT_SERVICE_SIDE):
+    """
+    World (X, Y) in metres of grid intersection (col, row), both 0-based.
+    col 0 is the centre line and col GRID_COLS-1 the sideline of the selected
+    service area; row 0 is the short service line and row GRID_ROWS-1 the back
+    boundary.
+    """
+    _, area = _service_area(service_side)
+    x = PREFERRED_DROP_X_MIN + row * (PREFERRED_DROP_X_MAX - PREFERRED_DROP_X_MIN) / (GRID_ROWS - 1)
+    step = (area["y_max"] - area["y_min"]) / (GRID_COLS - 1)
+    if area["y_min"] == 0.0:                 # right area: centre line is y_min
+        y = area["y_min"] + col * step
+    else:                                    # left area: centre line is y_max
+        y = area["y_max"] - col * step
+    return float(x), float(y)
+
+
+def describe_landing_target(landing_target, service_side=DEFAULT_SERVICE_SIDE):
+    """Short human-readable description for the UI (1-based row / column)."""
+    target = normalize_landing_target(landing_target)
+    if target["mode"] == LANDING_MODE_CORNERS:
+        return {"mode": LANDING_MODE_CORNERS,
+                "text": "All four corners (GCP3\u2013GCP6): the nearest corner is the target"}
+    x, y = grid_point_xy(target["col"], target["row"], service_side)
+    return {
+        "mode": LANDING_MODE_POINT,
+        "text": (f"One grid point: row {target['row'] + 1} of {GRID_ROWS}, "
+                 f"column {target['col'] + 1} of {GRID_COLS} (X = {x:.2f} m, Y = {y:.2f} m)"),
+        "x": x, "y": y,
+    }
+
+
+def _landing_targets(service_side, landing_target=None):
+    """[(name, np.array([x, y])), ...] the landing score measures distance to."""
+    target = normalize_landing_target(landing_target)
+    if target["mode"] == LANDING_MODE_POINT:
+        x, y = grid_point_xy(target["col"], target["row"], service_side)
+        name = f"grid point row {target['row'] + 1}, col {target['col'] + 1} (X {x:.2f}, Y {y:.2f})"
+        return [(name, np.array([x, y]))]
+    return list(_landing_gcps(service_side))
 
 
 def _landing_gcps(service_side):
@@ -266,24 +362,28 @@ def _evaluate_landing_status(landing_pt, service_side=DEFAULT_SERVICE_SIDE):
     }
 
 
-def _landing_target_score(landing_pt, service_side=DEFAULT_SERVICE_SIDE):
+def _landing_target_score(landing_pt, service_side=DEFAULT_SERVICE_SIDE, landing_target=None):
     """
-    Return the Landing Placement Score (LPS) on a 0..100 scale.
+    Return (LPS, distance_m, target_name, target_xy): the Landing Placement
+    Score on a 0..100 scale, the distance to the nearest target, that
+    target's name and its (X, Y).
 
-    Linear ramp on the Euclidean distance to the nearest of the four box
-    corners (GCP3-GCP6) of the selected service side. For the right side:
+    Linear ramp on the Euclidean distance to the nearest target:
+        LPS = 100 * max(0, 1 - d / LANDING_ZERO_SCORE_DISTANCE_M)
+    Default targets are the four box corners (GCP3-GCP6). For the right side:
         GCP3 = (1.98, 0.00)   GCP4 = (1.98, 2.59)
         GCP5 = (6.70, 0.00)   GCP6 = (6.70, 2.59)
-    and for the left side the Y values become -2.59 and 0.00.
-    100 on any corner, 0 at the centre of the box.
+    and for the left side the Y values become -2.59 and 0.00. With
+    landing_target = {"mode": "point", "col": c, "row": r} the single grid
+    intersection is the only target.
 
-    All four corners are targets for both serve types.
+    The targets are the same for both serve types.
     """
     point = np.asarray(landing_pt, dtype=np.float64)
 
-    nearest_dist, nearest_name = min(
-        (float(np.linalg.norm(point - xy)), name)
-        for name, xy in _landing_gcps(service_side)
+    nearest_dist, nearest_name, nearest_xy = min(
+        (float(np.linalg.norm(point - xy)), name, xy)
+        for name, xy in _landing_targets(service_side, landing_target)
     )
 
     score = 100.0 * max(
@@ -291,7 +391,7 @@ def _landing_target_score(landing_pt, service_side=DEFAULT_SERVICE_SIDE):
     )
     score = float(np.clip(score, 0.0, 100.0))
 
-    return score, nearest_dist, nearest_name
+    return score, nearest_dist, nearest_name, (float(nearest_xy[0]), float(nearest_xy[1]))
 
 
 def _bounded_linear_score(value, low, high, increasing=True):
@@ -362,6 +462,7 @@ def evaluate_serve_performance(
     serve_type="auto",
     service_side=DEFAULT_SERVICE_SIDE,
     weights=None,
+    landing_target=None,
 ):
     """
     Evaluate serve quality from a triangulated 3D trajectory.
@@ -384,6 +485,12 @@ def evaluate_serve_performance(
     `service_side` ("right" or "left") selects which service area is the
     IN box: right = Y 0..+2.59 m, left = Y -2.59..0 m.
 
+    `landing_target` chooses what the landing score aims at: None (default)
+    scores against the nearest of the four box corners GCP3-GCP6; a dict
+    {"mode": "point", "col": c, "row": r} scores against ONE intersection of
+    the 7 x 9 grid (0-based indices, column 0 = centre line, row 0 = short
+    service line).
+
     IN/OUT remains separate from scoring. A landing outside the preferred
     drop box is OUT and the final serve score is forced to 0 (the three
     component scores are still reported).
@@ -394,6 +501,7 @@ def evaluate_serve_performance(
     try:
         service_side, area = _service_area(service_side)
         norm_weights = _normalise_weights(weights)
+        landing_target = normalize_landing_target(landing_target)
     except ValueError as exc:
         return {"error": str(exc)}
 
@@ -430,7 +538,9 @@ def evaluate_serve_performance(
     # ---------------------------------------------------------------
     # Three independent component scores, each 0..100.
     # ---------------------------------------------------------------
-    lps, dist_err, nearest_gcp = _landing_target_score(landing_pt, service_side)
+    lps, dist_err, target_name, target_xy = _landing_target_score(
+        landing_pt, service_side, landing_target
+    )
     ncs = _net_clearance_score(net_clearance, serve_type)
     phs = _peak_height_score(max_height, serve_type)
 
@@ -444,7 +554,7 @@ def evaluate_serve_performance(
     deductions = [
         (
             f"Landing placement (LPS): {lps:.1f}/100 "
-            f"({nearest_gcp}, {dist_err:.2f}m away)"
+            f"({target_name}, {dist_err:.2f}m away)"
         ),
         (
             f"Net clearance (NCS): {ncs:.1f}/100 "
@@ -513,7 +623,11 @@ def evaluate_serve_performance(
             "total": final_score,
         },
         "landing_target": {
-            "gcp": nearest_gcp,
+            "mode": landing_target["mode"],
+            "name": target_name,
+            "gcp": target_name if landing_target["mode"] == LANDING_MODE_CORNERS else None,
+            "x": target_xy[0],
+            "y": target_xy[1],
             "distance_m": dist_err,
             "score_percent": lps,
         },

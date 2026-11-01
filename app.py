@@ -14,7 +14,9 @@ from calibrate_core import (
     SERVICE_SIDES, DEFAULT_SERVICE_SIDE, normalize_service_side, gcp_labels_for, landmark_key,
 )
 from triangulate import BadmintonTracker3D
+import evaluator
 from evaluator import evaluate_serve_performance
+import multi_serve
 
 app = Flask(__name__)
 
@@ -95,6 +97,137 @@ def read_saved_service_side():
     return DEFAULT_SERVICE_SIDE
 
 
+# A serve whose nearest tracked point is further than this from the net gets a warning.
+NET_GAP_WARNING_M = 0.75
+
+
+def build_multi_serve_report(trajectory, diagnostics, service_side, warnings, landing_target=None):
+    """
+    Split the tracked points into serves, evaluate each one, and return
+    (report, serves). `report` is the first serve's report plus:
+        shots          list of per-serve reports (the dashboard pager uses it)
+        serve_count    number of serves found
+        average_score  mean of the serves' final scores
+    Returns (None, serves, discarded) when no serve could be evaluated. Notes
+    about unreliable serves are appended to `warnings`.
+    """
+    fps = diagnostics.get("fps") or 30.0
+    serves, discarded = multi_serve.split_serves(trajectory, fps)
+
+    shots, kept = [], []
+    for serve in serves:
+        rep = evaluate_serve_performance(
+            serve["points"], service_side=service_side, landing_target=landing_target
+        )
+        if "error" in rep:
+            continue
+        rep["serve_index"] = len(shots) + 1
+        rep["start_s"] = serve["start_s"]
+        rep["end_s"] = serve["end_s"]
+        rep["track_complete"] = serve["complete"]
+        # How close to the net did tracking get? Peak height and net clearance are
+        # measured from the tracked points, so a track that only starts well past
+        # the net (the shuttle was not detected right after the hit) is less reliable.
+        net_gap = min(abs(float(p["X"])) for p in serve["points"])
+        rep["net_gap_m"] = net_gap
+        if net_gap > NET_GAP_WARNING_M:
+            warnings.append(
+                f"Serve {rep['serve_index']}: tracking only began {net_gap:.1f} m past the net "
+                f"(the shuttle was not detected earlier), so its peak height and net clearance "
+                f"are measured from the first tracked point rather than at the net."
+            )
+        if not serve["complete"]:
+            warnings.append(
+                f"Serve {rep['serve_index']}: the shuttle was lost before it touched the "
+                f"floor, so its landing point is estimated from the last tracked points."
+            )
+        shots.append(rep)
+        kept.append(dict(serve, serve_index=rep["serve_index"]))
+
+    if not shots:
+        return None, kept, discarded
+
+    report = dict(shots[0])
+    report["shots"] = shots
+    report["serve_count"] = len(shots)
+    report["average_score"] = float(np.mean([s["final_score"] for s in shots]))
+    report["discarded_fragments"] = len(discarded)
+    return report, kept, discarded
+
+
+MULTI_SERVE_DEBUG_FILE = os.path.join(BASE, "multi_serve_debug.json")
+
+
+def write_multi_serve_debug(diagnostics, serves, discarded):
+    """
+    Save everything needed to replay the multi-serve tracking offline
+    (detections per frame, camera matrices, chosen pairs, 3D points, how the
+    points were split). Returns the file path, or None if it could not be written.
+    """
+    debug = diagnostics.pop("debug", None)
+    if not debug:
+        return None
+    debug["diagnostics"] = dict(diagnostics)
+    debug["serves"] = [
+        {"serve_index": s["serve_index"], "start_frame": s["start_frame"],
+         "end_frame": s["end_frame"], "points": len(s["points"]), "complete": s["complete"]}
+        for s in serves
+    ]
+    debug["discarded"] = discarded
+    try:
+        with open(MULTI_SERVE_DEBUG_FILE, "w", encoding="utf-8") as f:
+            json.dump(debug, f)
+        return MULTI_SERVE_DEBUG_FILE
+    except (OSError, TypeError, ValueError):
+        return None
+
+
+def explain_multi_serve_failure(diag, trajectory, discarded, debug_path):
+    """A message that says WHERE the points were lost, not just that none were found."""
+    parts = [
+        "No complete serve was found.",
+        f"Frames processed: {diag.get('frames_processed', '?')} at {diag.get('fps', 0):.0f} fps.",
+        f"YOLO detections: side {diag.get('candidates_side', '?')} "
+        f"(in {diag.get('frames_with_candidates_side', '?')} frames), "
+        f"back {diag.get('candidates_back', '?')} (in {diag.get('frames_with_candidates_back', '?')} frames).",
+        f"Ignored as resting shuttles: side {diag.get('static_removed_side', '?')}, "
+        f"back {diag.get('static_removed_back', '?')}.",
+        f"Frames where both cameras had a moving shuttle: {diag.get('frames_both_moving', '?')}; "
+        f"rejected by the camera-pair check: {diag.get('rejected_pair_frames', '?')} "
+        f"(typical pair error {diag.get('median_pair_error_pct', 0):.1f}% of the frame diagonal, "
+        f"accepted up to {diag.get('pair_error_limit_pct', 0):.1f}%).",
+    ]
+    if trajectory:
+        frames = [int(p["frame"]) for p in trajectory]
+        zs = [float(p["Z"]) for p in trajectory]
+        parts.append(
+            f"Tracked 3D points: {len(trajectory)} (frames {min(frames)}-{max(frames)}), "
+            f"highest point Z = {max(zs):.2f} m, lowest Z = {min(zs):.2f} m."
+        )
+    else:
+        parts.append("Tracked 3D points: 0.")
+    if discarded:
+        shown = "; ".join(
+            f"frames {d['start_frame']}-{d['end_frame']}: {d['points']} pts, {d['reason']}"
+            for d in discarded[:5]
+        )
+        more = f" (+{len(discarded) - 5} more)" if len(discarded) > 5 else ""
+        parts.append(f"Fragments discarded: {shown}{more}.")
+    elif trajectory:
+        parts.append(
+            "No fragments were discarded, so no track ever rose above the launch height "
+            "(0.5 m) - check the Z values above."
+        )
+    else:
+        parts.append(
+            "Nothing reached the 3D stage: check that the shuttle is detected as MOVING in both "
+            "cameras at the same time (see the detection counts above)."
+        )
+    if debug_path:
+        parts.append(f"Details saved to {os.path.basename(debug_path)}.")
+    return " ".join(parts)
+
+
 def run_evaluation_job(job_id):
     try:
         update_evaluation_job(job_id, status="loading", message="Loading YOLO model…")
@@ -115,19 +248,27 @@ def run_evaluation_job(job_id):
                 message=f"Processing frame {current} / {total}",
             )
 
+        multi = bool((get_evaluation_job(job_id) or {}).get("multi_serve"))
+
         trajectory, motion_diagnostics = tracker.process_videos(
             os.path.join(UPLOAD_VIDEO_DIR, "side_sync.mp4"),
             os.path.join(UPLOAD_VIDEO_DIR, "back_sync.mp4"),
             progress_callback=progress_callback,
+            multi_serve=multi,
         )
 
         warnings = build_trajectory_warnings(motion_diagnostics)
 
         if len(trajectory) == 0:
+            message = "No trajectory points detected."
+            if multi:
+                # Say where the detections were lost instead of only that none were found.
+                debug_path = write_multi_serve_debug(motion_diagnostics, [], [])
+                message = explain_multi_serve_failure(motion_diagnostics, [], [], debug_path)
             update_evaluation_job(
                 job_id,
                 status="error",
-                error="No trajectory points detected.",
+                error=message,
                 warnings=warnings,
             )
             return
@@ -143,13 +284,35 @@ def run_evaluation_job(job_id):
         # high/long serve itself from where the shuttle actually landed.
         # service_side comes from the calibration the trajectory was
         # triangulated with: right = Y 0..+2.59 m is IN, left = Y -2.59..0 m.
-        report = evaluate_serve_performance(
-            trajectory,
-            service_side=read_saved_service_side(),
-        )
+        service_side = read_saved_service_side()
+        landing_target = read_landing_target()
+
+        if multi:
+            report, serves, discarded = build_multi_serve_report(
+                trajectory, motion_diagnostics, service_side, warnings, landing_target
+            )
+            debug_path = write_multi_serve_debug(motion_diagnostics, serves, discarded)
+            if report is None:
+                update_evaluation_job(
+                    job_id,
+                    status="error",
+                    error=explain_multi_serve_failure(
+                        motion_diagnostics, trajectory, discarded, debug_path
+                    ),
+                    warnings=warnings,
+                )
+                return
+            chart_serves = serves
+        else:
+            report = evaluate_serve_performance(
+                trajectory, service_side=service_side, landing_target=landing_target
+            )
+            chart_serves = None
+
         save_trajectory_chart(
             trajectory,
-            os.path.join(STATIC_DIR, "trajectory.png")
+            os.path.join(STATIC_DIR, "trajectory.png"),
+            serves=chart_serves,
         )
 
         update_evaluation_job(
@@ -260,8 +423,11 @@ def extract_video_frames(video_path, output_dir, job_id, label):
     return frame_idx, fps
 
 
+PREVIEW_MAX_WIDTH = 1280
+
+
 def make_browser_playable_copy(src_path, dst_path):
-    """Copy a video for direct <video> playback in the browser.
+    """Make a small H.264 preview of a synchronized video for the browser.
 
     create_sync_video() below writes with OpenCV's "mp4v" fourcc (MPEG-4
     Part 2) because that's the codec most reliably available for
@@ -271,25 +437,37 @@ def make_browser_playable_copy(src_path, dst_path):
     copy of that file will silently fail to play (Chrome/Firefox just fire
     a media error event with no dialog, which looks like a missing file).
 
-    This re-encodes with ffmpeg into H.264/yuv420p, which every mainstream
-    browser plays natively. If ffmpeg isn't installed or the re-encode
-    fails for some reason, we fall back to a plain copy rather than
-    crashing the request -- that copy just won't play in-browser, exactly
-    like before this function existed.
+    This writes an H.264/yuv420p copy with ffmpeg, scaled down to at most
+    PREVIEW_MAX_WIDTH pixels wide and encoded with a fast preset. The preview
+    is only for the results page -- triangulation always reads the original
+    full-resolution file -- and frame rate and timing are unchanged, so the
+    serve start times shown on the results page match the preview. A 4K,
+    60 fps, ~900 frame clip takes tens of seconds this way; re-encoding it at
+    full resolution with the default preset took several minutes and hit the
+    old 120 s timeout, which left an unplayable copy (the "Back view"
+    placeholder).
+
+    If ffmpeg isn't installed or the encode fails, we fall back to a plain
+    copy rather than crashing the request -- that copy just won't play
+    in-browser.
     """
     try:
         result = subprocess.run(
             [
                 "ffmpeg", "-y",
                 "-i", src_path,
+                "-vf", f"scale='min({PREVIEW_MAX_WIDTH},iw)':-2",
                 "-c:v", "libx264",
+                "-preset", "veryfast",
+                "-crf", "26",
                 "-pix_fmt", "yuv420p",
                 "-movflags", "+faststart",
+                "-an",
                 dst_path,
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=120,
+            timeout=900,
         )
         if result.returncode == 0 and os.path.exists(dst_path):
             return
@@ -297,6 +475,47 @@ def make_browser_playable_copy(src_path, dst_path):
         pass
 
     shutil.copyfile(src_path, dst_path)
+
+
+def _video_codec(path):
+    """Codec name of the first video stream (via ffprobe), or None if it can't be read."""
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=codec_name", "-of", "csv=p=0", path],
+            capture_output=True, text=True, timeout=30,
+        )
+        name = out.stdout.strip().splitlines()[0].strip() if out.returncode == 0 and out.stdout.strip() else ""
+        return name or None
+    except (OSError, subprocess.SubprocessError, IndexError):
+        return None
+
+
+_preview_repair_attempted = set()
+
+
+def ensure_browser_previews():
+    """
+    Repair the browser previews of an already-synchronized clip.
+
+    Clips synchronized before the preview fix may have an unplayable (mp4v)
+    copy in static/uploads. If ffprobe says a preview is not H.264, rebuild it
+    from the full-resolution file once per process (a few tens of seconds for
+    a 4K clip, only the first time the results page is opened).
+    """
+    for name in ("side_sync.mp4", "back_sync.mp4"):
+        src = os.path.join(UPLOAD_VIDEO_DIR, name)
+        dst = os.path.join(STATIC_DIR, name)
+        if not os.path.exists(src):
+            continue
+        key = (name, os.path.getmtime(src))
+        if key in _preview_repair_attempted:
+            continue
+        codec = _video_codec(dst) if os.path.exists(dst) else ""
+        if codec is None or codec == "h264":      # None: ffprobe unavailable -> leave as is
+            continue
+        _preview_repair_attempted.add(key)
+        make_browser_playable_copy(src, dst)
 
 
 def create_sync_video(frame_paths, output_path, fps, frame_size):
@@ -773,6 +992,9 @@ def calibrate_page():
                             gcp_labels=gcp_labels_for(service_side),
                             service_side=service_side,
                             service_side_label=SERVICE_SIDE_LABELS[service_side],
+                            landing_target_text=evaluator.describe_landing_target(
+                                read_landing_target(), service_side
+                            )["text"],
                             service_sides=[
                                 {"key": k, "label": SERVICE_SIDE_LABELS[k]}
                                 for k in SERVICE_SIDES
@@ -825,9 +1047,12 @@ def run_evaluation():
     if not os.path.exists(CALIBRATION_FILE):
         return jsonify({"error": "Calibration has not been saved yet."}), 400
 
+    options = request.get_json(silent=True) or {}
+
     job_id = uuid.uuid4().hex
     job = {
         "job_id": job_id,
+        "multi_serve": bool(options.get("multi_serve")),
         "status": "starting",
         "current": 0,
         "total": 0,
@@ -893,6 +1118,7 @@ def evaluation_result(job_id):
     if not job.get("done"):
         return redirect(url_for("calibrate_page"))
 
+    ensure_browser_previews()
     return render_template(
         "dashboard.html",
         report=job["report"],
@@ -900,16 +1126,23 @@ def evaluation_result(job_id):
         warnings=job.get("warnings", []),
     )
 
-def save_trajectory_chart(trajectory, out_path):
+def save_trajectory_chart(trajectory, out_path, serves=None):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    X = [p["X"] for p in trajectory]
-    Z = [p["Z"] for p in trajectory]
-
     plt.figure(figsize=(8, 4))
-    plt.plot(X, Z, marker="o")
+    if serves:
+        # multi-serve: one line per serve
+        for serve in serves:
+            plt.plot(
+                [p["X"] for p in serve["points"]],
+                [p["Z"] for p in serve["points"]],
+                marker="o", markersize=3,
+                label=f"Serve {serve['serve_index']}",
+            )
+    else:
+        plt.plot([p["X"] for p in trajectory], [p["Z"] for p in trajectory], marker="o")
     plt.xlabel("X - Depth from net (m)")
     plt.ylabel("Z - Height (m)")
     plt.title("Serve Trajectory (Side Profile)")
@@ -919,6 +1152,64 @@ def save_trajectory_chart(trajectory, out_path):
     plt.grid(True)
     plt.savefig(out_path)
     plt.close()
+
+
+# ---------------------------------------------------------------------------
+# Landing target (what the landing score aims at), chosen on the upload page
+# ---------------------------------------------------------------------------
+LANDING_TARGET_FILE = os.path.join(BASE, "landing_target.json")
+
+
+def read_landing_target():
+    """
+    The coach's saved landing target, validated. Falls back to the default
+    (all four corners, GCP3-GCP6) if nothing was saved or the file is unusable.
+    """
+    try:
+        with open(LANDING_TARGET_FILE, "r", encoding="utf-8") as f:
+            return evaluator.normalize_landing_target(json.load(f))
+    except (OSError, ValueError, TypeError):
+        return evaluator.normalize_landing_target(None)
+
+
+def write_landing_target(target):
+    """Save atomically so a crash can never leave a half-written file."""
+    tmp = LANDING_TARGET_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(target, f)
+    os.replace(tmp, LANDING_TARGET_FILE)
+
+
+def _landing_target_payload(target):
+    """Everything the upload page needs to draw the grid and describe the choice."""
+    return {
+        "target": target,
+        "grid": {
+            "cols": evaluator.GRID_COLS,
+            "rows": evaluator.GRID_ROWS,
+            "x_min_m": evaluator.PREFERRED_DROP_X_MIN,
+            "x_max_m": evaluator.PREFERRED_DROP_X_MAX,
+            "width_m": evaluator.SERVICE_AREAS["right"]["y_max"] - evaluator.SERVICE_AREAS["right"]["y_min"],
+        },
+        "zero_score_distance_m": evaluator.LANDING_ZERO_SCORE_DISTANCE_M,
+    }
+
+
+@app.route("/api/landing_target", methods=["GET", "POST"])
+def api_landing_target():
+    if request.method == "GET":
+        return jsonify(_landing_target_payload(read_landing_target()))
+
+    try:
+        target = evaluator.normalize_landing_target(request.get_json(silent=True) or {})
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    try:
+        write_landing_target(target)
+    except OSError as exc:
+        return jsonify({"error": f"Could not save the landing target: {exc}"}), 500
+    return jsonify(_landing_target_payload(target))
+
 
 if __name__ == "__main__":
     app.run(debug=True)

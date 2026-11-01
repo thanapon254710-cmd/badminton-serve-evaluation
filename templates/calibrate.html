@@ -454,6 +454,33 @@
     width: 100%;
   }
 
+  .target-note {
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--muted);
+    margin: 0 0 10px 0;
+  }
+
+  .target-note a { color: var(--court); }
+
+  .multi-serve-opt {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .multi-serve-opt input { margin-top: 3px; }
+
+  .multi-serve-opt small {
+    display: block;
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
   #evalError {
     color: var(--danger);
     font-size: 13px;
@@ -634,7 +661,14 @@
       <div class="evaluate-panel">
         <div id="evaluateForm">
           <h3>Run evaluation</h3>
+          <p class="target-note"><strong>Landing target:</strong> {{ landing_target_text }}.
+            <a href="/">Change on the upload page</a></p>
           <div class="evaluate-row">
+            <label class="multi-serve-opt" for="multiServe">
+              <input type="checkbox" id="multiServe">
+              <span><strong>Several serves in this video</strong>
+              <small>Ignores shuttles resting on the court and scores each serve separately. Leave off for a single serve.</small></span>
+            </label>
             <button class="btn btn-primary" id="evaluateBtn" disabled>Run Evaluation</button>
           </div>
 
@@ -1114,11 +1148,10 @@ document.getElementById("evaluateBtn").addEventListener("click", async () => {
 
     const startResp = await fetch("/run_evaluation", {
       method: "POST",
-      headers: {
-        "Content-Type":
-          "application/x-www-form-urlencoded;charset=UTF-8"
-      },
-      body: ""
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        multi_serve: document.getElementById("multiServe").checked
+      })
     });
 
     const startData = await startResp.json();

@@ -34,6 +34,12 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
 .eyebrow,.section-label{font:10px "JetBrains Mono",monospace;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.08em}
 .section-label{margin:10px 0 8px}
 .warning-card{padding:13px 15px;margin-bottom:9px;border-color:var(--warn-border);background:var(--warn-bg)}
+.warning-card[hidden]{display:none}
+.warning-bar{margin-bottom:9px}
+.warning-toggle{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--warn-border);background:var(--warn-bg);color:var(--warn);border-radius:999px;padding:5px 12px;font:600 11.5px Inter,sans-serif;cursor:pointer}
+.warning-toggle:hover{filter:brightness(.97)}
+.warning-toggle:focus-visible{outline:2px solid var(--line);outline-offset:1px}
+.warning-toggle .action{font:10px "JetBrains Mono",monospace;text-transform:uppercase;letter-spacing:.04em;opacity:.8}
 .warning-title{color:var(--warn);font:700 13px "Space Grotesk",sans-serif;margin:4px 0 6px}.warning-message{color:var(--warn);font-size:11px;line-height:1.45;margin-bottom:4px}
 .error-card{padding:20px;border-color:#f0d1ce}.error-title{color:var(--danger);font:700 18px "Space Grotesk",sans-serif;margin:5px 0}.error-message{font-size:12px;color:var(--muted);line-height:1.5}
 
@@ -51,6 +57,17 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
 .map-frame img{width:100%;height:100%;object-fit:contain;display:block}
 .landing-marker{position:absolute;width:1px;height:1px;transform:translate(-50%,-50%);pointer-events:none}
 .landing-dot{position:absolute;width:15px;height:15px;left:0;top:0;transform:translate(-50%,-50%);border-radius:50%;background:var(--court);border:3px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.35)}
+/* one marker per serve: the selected serve is large, ringed and labelled; the others are small numbered dots */
+.landing-marker.lm{z-index:2}
+.landing-marker.lm-sel{z-index:5}
+.lm .landing-dot{display:grid;place-items:center;width:18px;height:18px;box-sizing:border-box;border-width:2px;color:#fff;font:700 9px "JetBrains Mono",monospace;cursor:pointer;pointer-events:auto;opacity:.72}
+.lm .landing-crosshair,.lm .landing-label{display:none}
+.lm-sel .landing-dot{width:24px;height:24px;opacity:1;font-size:11px;box-shadow:0 0 0 2px #fff,0 2px 8px rgba(0,0,0,.45)}
+.lm-sel .landing-crosshair,.lm-sel .landing-label{display:block}
+.lm-sel .landing-crosshair{width:38px;height:38px}
+.lm-flip .landing-label{left:auto;right:15px;top:-46px}
+.lm:not(.lm-sel) .landing-dot:hover{opacity:1;transform:translate(-50%,-50%) scale(1.15)}
+.map-legend{font:11px Inter,sans-serif;color:var(--muted);margin:-3px 0 8px;line-height:1.4;min-height:0}
 .landing-crosshair{position:absolute;width:28px;height:28px;left:0;top:0;transform:translate(-50%,-50%);border:2px solid var(--court);border-radius:50%}
 .landing-label{position:absolute;left:13px;top:-27px;white-space:nowrap;padding:4px 6px;border-radius:5px;background:#fff;border:1px solid var(--border);font:700 9px "JetBrains Mono",monospace;color:var(--court)}
 .landing-out .landing-dot{background:var(--danger)}.landing-out .landing-crosshair{border-color:var(--danger)}.landing-out .landing-label{color:var(--danger)}
@@ -58,10 +75,18 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
 
 .summary-label{margin-top:11px}.summary-card{padding:11px 10px 10px;display:grid;grid-template-columns:1.8fr 1fr;gap:12px;min-height:168px}
 .summary-left{min-width:0}.summary-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
-.pager{display:flex;align-items:center;gap:4px;font:10px "JetBrains Mono",monospace;color:var(--muted)}
-.pager button{border:0;background:none;color:var(--ink);padding:1px 4px;font:12px "JetBrains Mono",monospace;cursor:pointer}
-.pager button:disabled{opacity:.35;cursor:default}
-.pager .shot-label{min-width:28px;text-align:center}
+.pager{display:flex;align-items:center;gap:6px;font:10px "JetBrains Mono",monospace;color:var(--muted)}
+.pager .arrow{border:1px solid var(--border);background:#fff;color:var(--ink);width:26px;height:26px;border-radius:7px;font:13px "JetBrains Mono",monospace;cursor:pointer;line-height:1}
+.pager .arrow:hover:not(:disabled){background:var(--court-dim)}
+.pager .arrow:disabled{opacity:.35;cursor:default}
+.shot-tabs{display:flex;gap:4px;flex-wrap:wrap;max-width:260px}
+.shot-tab{min-width:30px;height:26px;padding:0 9px;border:1px solid var(--border);border-radius:7px;background:#fff;color:var(--ink);font:600 12px "JetBrains Mono",monospace;cursor:pointer}
+.shot-tab:hover{background:var(--court-dim)}
+.shot-tab[aria-selected="true"]{background:var(--court);border-color:var(--court);color:#fff;cursor:default}
+.shot-tab:focus-visible,.pager .arrow:focus-visible{outline:2px solid var(--line);outline-offset:1px}
+.shot-caption{font:11px Inter,sans-serif;color:var(--muted);margin:-2px 0 10px;min-height:14px}
+.target-marker{position:absolute;width:1px;height:1px;transform:translate(-50%,-50%);pointer-events:none}
+.target-marker span{position:absolute;left:-9px;top:-9px;width:18px;height:18px;border-radius:50%;border:2px dashed #e8b13a;background:rgba(232,177,58,.25)}
 .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .metric{padding:10px 11px;min-height:83px}.metric-label{font-size:9px;color:var(--muted);font-weight:700;margin-bottom:6px}
 .metric-value{font:700 18px "Space Grotesk",sans-serif;letter-spacing:-.02em}.metric-unit{font:9px "JetBrains Mono",monospace;color:var(--muted);margin-left:2px}
@@ -97,7 +122,12 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
   </div>
 
 {% if warnings %}
-  <div class="card warning-card">
+  <div class="warning-bar">
+    <button type="button" class="warning-toggle" id="warningToggle" aria-expanded="false" aria-controls="warningPanel">
+      <span aria-hidden="true">&#9888;</span> {{ warnings|length }} trajectory warning{{ "" if warnings|length == 1 else "s" }} <span class="action" id="warningToggleAction">Show</span>
+    </button>
+  </div>
+  <div class="card warning-card" id="warningPanel" hidden>
     <div class="eyebrow" style="color:var(--warn)">Trajectory warning</div>
     <div class="warning-title">This result may not be reliable</div>
     {% for w in warnings %}<p class="warning-message">{{ w }}</p>{% endfor %}
@@ -116,7 +146,7 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
   <div class="card hero">
     <div class="hero-copy">
       <h1>Serve performance</h1>
-      <p class="subtitle">Your two-camera footage has been reconstructed into a 3D shuttle trajectory.</p>
+      <p class="subtitle">Your two-camera footage has been reconstructed into a 3D shuttle trajectory.{% if report.serve_count is defined and report.serve_count > 1 %} <strong>{{ report.serve_count }} serves</strong> were found in this video. Click the numbered buttons (1, 2, 3 …) in the summary below to see each serve.{% endif %}</p>
     </div>
     <div class="score-box">
       <div class="score-label">Average score:</div>
@@ -137,31 +167,33 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
         <div class="camera-head"><span class="camera-name">Side camera</span><span class="camera-tag">SIDE</span></div>
         <div class="camera-frame">
           <video src="/static/uploads/side_sync.mp4" poster="/static/uploads/side_frame.jpg" controls muted playsinline preload="metadata" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"></video>
-          <span class="video-fallback">Side view</span>
+          <span class="video-fallback">Side view: the preview could not be played</span>
         </div>
       </div>
       <div class="card camera-card">
         <div class="camera-head"><span class="camera-name">Back camera</span><span class="camera-tag">BACK</span></div>
         <div class="camera-frame">
           <video src="/static/uploads/back_sync.mp4" poster="/static/uploads/back_frame.jpg" controls muted playsinline preload="metadata" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"></video>
-          <span class="video-fallback">Back view</span>
+          <span class="video-fallback">Back view: the preview could not be played</span>
         </div>
       </div>
     </div>
 
     <div class="card landing-card">
       <div class="landing-title">Shuttlecock landing position{% if report.service_side_label %} &middot; {{ report.service_side_label }}{% endif %}</div>
+      <div class="map-legend" id="mapLegend"></div>
       <div class="map-frame">
         <img src="/static/guide/top_view_spot.jpg" alt="Top view reference court">
         {% set image_w=1297 %}{% set image_h=1262 %}
         {% set origin_x_px=657 %}{% set origin_y_px=4 %}{% set depth_end_y_px=1223 %}
         {% set left_y_px=167 %}{% set right_y_px=1152 %}{% set court_width_m=5.18 %}{% set court_depth_m=6.70 %}
-        {% set landing_px=origin_x_px+(landing_y/court_width_m)*(right_y_px-left_y_px) %}
-        {% set landing_py=origin_y_px+(landing_x/court_depth_m)*(depth_end_y_px-origin_y_px) %}
-        <div class="landing-marker {{ 'landing-in' if landing_in else 'landing-out' }}" style="left:{{ (landing_px/image_w*100)|round(3) }}%;top:{{ (landing_py/image_h*100)|round(3) }}%">
-          <span class="landing-crosshair"></span><span class="landing-dot"></span>
-          <span class="landing-label">{{ "%.2f"|format(landing_x) }}, {{ "%.2f"|format(landing_y) }} ({{ "IN" if landing_in else "OUT" }})</span>
-        </div>
+        {% set tgt = report.landing_target if report.landing_target is defined else none %}
+        {% if tgt and tgt.mode == "point" %}
+        {% set tgt_px=origin_x_px+(tgt.y/court_width_m)*(right_y_px-left_y_px) %}
+        {% set tgt_py=origin_y_px+(tgt.x/court_depth_m)*(depth_end_y_px-origin_y_px) %}
+        <div class="target-marker" id="targetMarker" title="Target: {{ tgt.name }}" style="left:{{ (tgt_px/image_w*100)|round(3) }}%;top:{{ (tgt_py/image_h*100)|round(3) }}%"><span></span></div>
+        {% endif %}
+        {# one marker per serve is added by the script below #}
       </div>
     </div>
   </div>
@@ -171,12 +203,15 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
     <div class="summary-left">
       <div class="summary-head">
         <h2>Scoring deductions</h2>
-        <div class="pager" aria-label="Shot selector">
-          <button id="prevShot" type="button" aria-label="Previous shot">&lt;</button>
-          <span class="shot-label" id="shotLabel">1</span>
-          <button id="nextShot" type="button" aria-label="Next shot">&gt;</button>
+        <div class="pager" role="group" aria-label="Serve selector">
+          <button class="arrow" id="prevShot" type="button" aria-label="Previous serve">&lt;</button>
+          <div class="shot-tabs" id="shotTabs" role="tablist" aria-label="Serves in this video">
+            <button class="shot-tab" type="button" role="tab" aria-selected="true">1</button>
+          </div>
+          <button class="arrow" id="nextShot" type="button" aria-label="Next serve">&gt;</button>
         </div>
       </div>
+      <div class="shot-caption" id="shotCaption"></div>
 
       <div class="metrics">
         <div class="card metric">
@@ -221,6 +256,18 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
   {# Optional frontend shot data:
      If a future backend supplies report.shots, this page can render it without changing
      the layout. With today's backend there is one report, so the pager remains on shot 1. #}
+  <script id="current-data" type="application/json">
+  {{ {
+    "final_score": report.final_score,
+    "max_height_m": report.max_height_m,
+    "net_clearance_m": report.net_clearance_m,
+    "landing_coordinate_m": report.landing_coordinate_m,
+    "landing_status": report.landing_status,
+    "landing_status_reason": (report.landing_status_reason or "metres from net centre"),
+    "serve_type_label": report.serve_type_label,
+    "deductions": report.deductions
+  } | tojson }}
+  </script>
   <script id="shot-data" type="application/json">
   {{ (report.shots if report.shots is defined else []) | tojson }}
   </script>
@@ -229,23 +276,63 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
     const raw=document.getElementById("shot-data").textContent.trim();
     let shots=[];
     try{shots=raw?JSON.parse(raw):[]}catch(e){shots=[]}
-    const current={
-      final_score:{{ report.final_score|tojson }},
-      max_height_m:{{ report.max_height_m|tojson }},
-      net_clearance_m:{{ report.net_clearance_m|tojson }},
-      landing_coordinate_m:{{ report.landing_coordinate_m|tojson }},
-      landing_status:{{ report.landing_status|tojson }},
-      landing_status_reason:{{ (report.landing_status_reason or "metres from net centre")|tojson }},
-      serve_type_label:{{ report.serve_type_label|tojson }},
-      deductions:{{ report.deductions|tojson }}
-    };
+    // The single-serve report is passed as JSON (not spliced into JavaScript), so editors
+    // do not flag template tags as JavaScript syntax errors.
+    const current=JSON.parse(document.getElementById("current-data").textContent);
     if(!shots.length)shots=[current];
 
     const avg=shots.reduce((sum,s)=>sum+Number(s.final_score||0),0)/shots.length;
     document.getElementById("avgScoreValue").textContent=avg.toFixed(1);
 
     let index=0;
-    const prev=document.getElementById("prevShot"),next=document.getElementById("nextShot"),label=document.getElementById("shotLabel");
+    const prev=document.getElementById("prevShot"),next=document.getElementById("nextShot");
+    const tabsEl=document.getElementById("shotTabs"),caption=document.getElementById("shotCaption");
+
+    // One numbered button per serve; clicking it shows that serve.
+    tabsEl.innerHTML="";
+    shots.forEach((_,i)=>{
+      const b=document.createElement("button");
+      b.type="button";b.className="shot-tab";b.setAttribute("role","tab");
+      b.textContent=String(i+1);b.title=shots.length>1?`Show serve ${i+1}`:"Serve 1";
+      b.addEventListener("click",()=>select(i));
+      tabsEl.appendChild(b);
+    });
+    function seekVideos(s){
+      // Jump both camera videos to just before this serve (the synchronized videos are the ones that were analysed).
+      if(shots.length<2||!isFinite(Number(s.start_s)))return;
+      document.querySelectorAll(".camera-frame video").forEach(v=>{
+        try{v.currentTime=Math.max(0,Number(s.start_s)-0.3)}catch(e){}
+      });
+    }
+    function select(i,fromUser=true){
+      if(i<0||i>=shots.length)return;
+      index=i;render();
+      if(fromUser)seekVideos(shots[index]);
+    }
+    // ---- landing map: every serve is drawn, the selected one is highlighted ----
+    const MAP={w:1297,h:1262,ox:657,oy:4,depthEnd:1223,left:167,right:1152,courtW:5.18,courtD:6.70};
+    const mapFrame=document.querySelector(".map-frame");
+    const markers=shots.map((s,i)=>{
+      const xy=s.landing_coordinate_m||current.landing_coordinate_m;
+      const inStatus=(s.landing_status||"OUT")==="IN";
+      const px=MAP.ox+(Number(xy[1])/MAP.courtW)*(MAP.right-MAP.left);
+      const py=MAP.oy+(Number(xy[0])/MAP.courtD)*(MAP.depthEnd-MAP.oy);
+      const el=document.createElement("div");
+      el.className="landing-marker lm "+(inStatus?"landing-in":"landing-out")+(px/MAP.w>0.6?" lm-flip":"");   // label goes to the left near the right edge
+      el.style.left=(px/MAP.w*100).toFixed(3)+"%";el.style.top=(py/MAP.h*100).toFixed(3)+"%";
+      el.innerHTML='<span class="landing-crosshair"></span><span class="landing-dot"></span><span class="landing-label"></span>';
+      const dot=el.querySelector(".landing-dot");
+      dot.textContent=String(i+1);dot.title=`Serve ${i+1}: ${Number(xy[0]).toFixed(2)}, ${Number(xy[1]).toFixed(2)} (${inStatus?"IN":"OUT"})`;
+      dot.setAttribute("role","button");dot.tabIndex=0;dot.setAttribute("aria-label",`Show serve ${i+1}`);
+      dot.addEventListener("click",()=>select(i));
+      dot.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();select(i)}});
+      mapFrame.appendChild(el);
+      return {el,label:el.querySelector(".landing-label"),xy,inStatus};
+    });
+    const legend=document.getElementById("mapLegend");
+    if(shots.length>1)legend.textContent="All serves are shown. The large ringed marker is the serve selected in the summary below; click a numbered dot to select it.";
+    else legend.style.display="none";
+
     function render(){
       const s=shots[index]||current, xy=s.landing_coordinate_m||current.landing_coordinate_m;
       const inStatus=(s.landing_status||"OUT")==="IN";
@@ -255,16 +342,45 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
       document.querySelector('[data-field="landing"]').textContent=`${Number(xy[0]||0).toFixed(2)}, ${Number(xy[1]||0).toFixed(2)}`;
       const st=document.getElementById("landingStatus");st.textContent=inStatus?"(IN)":"(OUT)";st.className=inStatus?"status-in":"status-out";
       document.getElementById("landingReason").textContent=`Landing is ${inStatus?"inside":"outside"} the preferred drop box.`;
-      label.textContent=String(index+1);
+      Array.from(tabsEl.children).forEach((b,i)=>b.setAttribute("aria-selected",i===index?"true":"false"));
+      caption.textContent=shots.length>1
+        ?`Serve ${index+1} of ${shots.length}`+(isFinite(Number(s.start_s))?` · starts at ${Number(s.start_s).toFixed(1)} s in the video`:"")
+        :"";
+      const heading=document.querySelector(".deductions h2 strong");
+      if(heading&&s.serve_type_label)heading.textContent=`(${s.serve_type_label})`;
+      markers.forEach((m,i)=>{
+        const sel=i===index;
+        m.el.classList.toggle("lm-sel",sel);
+        m.el.setAttribute("aria-current",sel?"true":"false");
+        if(sel){m.label.textContent=`Serve ${i+1}: ${Number(m.xy[0]).toFixed(2)}, ${Number(m.xy[1]).toFixed(2)} (${m.inStatus?"IN":"OUT"})`}
+      });
       prev.disabled=index===0;next.disabled=index===shots.length-1;
+      prev.style.visibility=next.style.visibility=shots.length>1?"visible":"hidden";
       const list=document.getElementById("deductionList");
       list.innerHTML="";
       const ds=s.deductions||[];
       if(!ds.length){list.innerHTML='<div class="no-deductions">No deductions. Excellent execution.</div>'}
       else ds.forEach(d=>{const el=document.createElement("div");el.className="deduction";el.textContent=d;list.appendChild(el)});
     }
-    prev.onclick=()=>{if(index>0){index--;render()}};
-    next.onclick=()=>{if(index<shots.length-1){index++;render()}};
+    const wToggle=document.getElementById("warningToggle");
+    if(wToggle){
+      const panel=document.getElementById("warningPanel"),act=document.getElementById("warningToggleAction");
+      wToggle.addEventListener("click",()=>{
+        const open=panel.hidden;panel.hidden=!open;
+        wToggle.setAttribute("aria-expanded",open?"true":"false");act.textContent=open?"Hide":"Show";
+      });
+    }
+    prev.onclick=()=>select(index-1);
+    next.onclick=()=>select(index+1);
+    // Arrow keys / Home / End move between the serve buttons (standard tab-list behaviour).
+    tabsEl.addEventListener("keydown",e=>{
+      const i=Array.from(tabsEl.children).indexOf(e.target);if(i<0)return;
+      let t=null;
+      if(e.key==="ArrowRight")t=i+1;else if(e.key==="ArrowLeft")t=i-1;
+      else if(e.key==="Home")t=0;else if(e.key==="End")t=shots.length-1;
+      if(t===null||t<0||t>=shots.length)return;
+      e.preventDefault();select(t);tabsEl.children[t].focus();
+    });
     render();
   })();
   </script>
