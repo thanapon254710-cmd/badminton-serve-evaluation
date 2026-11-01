@@ -116,25 +116,53 @@
     background: var(--border);
   }
 
+  /* ---- page grid ----
+     Left column : title -> two dropzones side by side -> "Uploaded clips" panel
+     Right column: "Landing target" box on top, Upload button anchored to the bottom
+     (the right column spans the dropzone row + preview panel, so the button lines
+     up with the bottom of the preview panel; if the target grid is expanded and the
+     right column becomes taller, the last row grows and the button simply follows). */
   .page-layout {
+    --side-w: 396px;
     width: 100%;
-    max-width: 1500px;
+    max-width: 1480px;
     margin: 0 auto;
     display: grid;
-    grid-template-columns: minmax(330px, 420px) minmax(0, 1fr);
-    gap: 44px;
+    grid-template-columns: minmax(0, 1fr) var(--side-w);
+    grid-template-rows: auto auto 1fr;
+    column-gap: 52px;
     align-items: start;
   }
 
-  .upload-panel { padding-top: 22px; }
+  .page-head { grid-column: 1; grid-row: 1; padding-top: 22px; }
+
+  .dropzone-row {
+    grid-column: 1; grid-row: 2;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, var(--side-w)));  /* each dropzone as wide as the right column */
+    gap: 32px;
+    margin-bottom: 32px;
+  }
+
+  .side-panel {
+    grid-column: 2; grid-row: 2 / 4;
+    align-self: stretch;
+    min-width: 0;
+    display: flex; flex-direction: column;
+    justify-content: space-between;
+    gap: 32px;                                   /* minimum space between target box and button */
+  }
+
+  .submit-area {
+    margin-top: auto;
+    display: flex; flex-direction: column; gap: 10px;
+  }
 
   h1 {
     font-family: 'Space Grotesk', sans-serif; font-size: 30px; margin: 0 0 6px 0;
     letter-spacing: -0.01em;
   }
   .subtitle { color: var(--muted); font-size: 14.5px; margin: 0 0 32px 0; }
-
-  form { display: flex; flex-direction: column; gap: 16px; }
 
   .dropzone {
     position: relative;
@@ -174,7 +202,7 @@
     border-radius: 12px;
     background: var(--card);
     padding: 14px 16px 12px;
-    margin: 0 0 14px 0;
+    margin: 0;
     min-width: 0;
   }
   .target-setup legend {
@@ -188,7 +216,7 @@
   .target-opt input { margin-top: 3px; }
   .target-opt small { display: block; font-size: 11.5px; line-height: 1.4; color: var(--muted); margin-top: 1px; }
   .target-grid-wrap { margin-top: 6px; }
-  #targetGrid { display: block; width: 100%; max-width: 300px; margin: 0 auto; }
+  #targetGrid { display: block; width: 100%; max-width: 290px; margin: 0 auto; }
   #targetGrid .tg-hit { fill: transparent; cursor: pointer; }
   #targetGrid .tg-hit:focus { outline: none; }
   #targetGrid .tg-dot { fill: #1c2521; pointer-events: none; }
@@ -205,16 +233,16 @@
   .target-status { font-size: 11.5px; margin-top: 8px; min-height: 15px; color: var(--muted); }
   .target-status.ok { color: var(--court); }
   .target-status.err { color: var(--danger); }
-  .submit-row { margin-top: 8px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
   button.submit {
     font-family: 'Inter', sans-serif; font-weight: 600; font-size: 14.5px;
     background: var(--court); color: #fff; border: none; border-radius: 8px;
     padding: 12px 22px; cursor: pointer; transition: background .12s;
+    align-self: flex-end;
   }
   button.submit:hover { background: var(--court-light); }
   button.submit:disabled { opacity: .5; cursor: not-allowed; }
 
-  .progress-wrap { display: none; margin-top: 4px; }
+  .progress-wrap { display: none; }
   .progress-track {
     height: 8px; border-radius: 999px; background: var(--court-dim);
     overflow: hidden; margin-bottom: 6px;
@@ -224,6 +252,7 @@
     border-radius: 999px; transition: width .15s ease;
   }
   .progress-label {
+    display: block;
     font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--muted);
   }
 
@@ -252,7 +281,8 @@
     border: 1px solid var(--border);
     border-radius: 16px;
     padding: 24px;
-    min-height: 520px;
+    grid-column: 1; grid-row: 3;
+    align-self: start;                           /* keep natural height even if the right column is taller */
   }
   .preview-heading {
     display: flex;
@@ -317,22 +347,31 @@
 
   @media (min-width: 1300px) {
     .page-shell { padding-left: 56px; padding-right: 56px; }
-    .page-layout { grid-template-columns: 400px minmax(0, 1fr); gap: 56px; }
     .preview-panel { padding: 28px; }
+  }
+
+  /* narrower screens: single column — title, dropzones, previews, then target + button */
+  @media (max-width: 1100px) {
+    .page-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
+    .page-head, .dropzone-row, .preview-panel, .side-panel { grid-column: 1; grid-row: auto; }
+    .page-head { padding-top: 0; margin-bottom: 0; }
+    .preview-panel { align-self: stretch; margin-bottom: 28px; }
+    .dropzone-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
 
   @media (max-width: 900px) {
     .page-shell { padding: 25px 20px 45px; }
-    .page-layout { grid-template-columns: 1fr; gap: 28px; }
-    .upload-panel { padding-top: 0; }
     .preview-grid { grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 640px) {
+    .dropzone-row { grid-template-columns: 1fr; gap: 16px; }
   }
 
   @media (max-width: 500px) {
     .page-shell { padding: 20px 14px 35px; }
     .topbar { margin-bottom: 24px; }
     .preview-panel { padding: 17px; }
-    .submit-row { align-items: flex-start; flex-direction: column; }
     button.submit { width: 100%; }
   }
 </style>
@@ -361,79 +400,38 @@
   </div>
 </div>
 
-<div class="page-layout">
-  <section class="upload-panel">
+<form class="page-layout" id="uploadForm" action="/upload" method="post" enctype="multipart/form-data">
+
+  <header class="page-head">
     <h1>Serve Evaluator</h1>
     <p class="subtitle">Upload serve clips for evaluation</p>
-
     <div id="formError"></div>
+  </header>
 
-    <form id="uploadForm" action="/upload" method="post" enctype="multipart/form-data">
-
-      <label class="dropzone" id="dzSide" for="sideInput">
-        <input type="file" id="sideInput" name="side_video" accept="video/*" required>
-        <div class="dz-icon">S</div>
-        <div class="dz-text">
-          <div class="dz-label">Side camera video</div>
-          <div class="dz-sub" id="sideSub">drop file or click to browse</div>
-          <div class="dz-filename" id="sideFilename"></div>
-        </div>
-      </label>
-
-      <label class="dropzone" id="dzBack" for="backInput">
-        <input type="file" id="backInput" name="back_video" accept="video/*" required>
-        <div class="dz-icon">B</div>
-        <div class="dz-text">
-          <div class="dz-label">Back camera video</div>
-          <div class="dz-sub" id="backSub">drop file or click to browse</div>
-          <div class="dz-filename" id="backFilename"></div>
-        </div>
-      </label>
-
-      <fieldset class="target-setup" id="targetSetup">
-        <legend>Landing target</legend>
-        <p class="target-help">What should the landing score aim at? The score is 100 on the target and falls to 0 at 2.69 m away. Saved immediately; used for the next evaluation.</p>
-
-        <label class="target-opt">
-          <input type="radio" name="target_mode" value="corners" checked>
-          <span><strong>All four corners (GCP3&ndash;GCP6)</strong>
-            <small>Default. The nearest corner of the service box is the target.</small></span>
-        </label>
-        <label class="target-opt">
-          <input type="radio" name="target_mode" value="point">
-          <span><strong>One grid point</strong>
-            <small>Pick the one intersection of the grid you want the serve to land on.</small></span>
-        </label>
-
-        <div class="target-grid-wrap" id="targetGridWrap" hidden>
-          <svg id="targetGrid" viewBox="0 0 270 382" role="group" aria-label="Landing target grid"></svg>
-          <div class="target-readout" id="targetReadout"></div>
-          <div class="target-legend">
-            Columns 1&ndash;7 run from the centre line to the sideline; rows 1&ndash;9 run from the short service
-            line (nearest the net) to the back boundary. Purple dots are the four corners. The same grid is
-            used for the left service area, mirrored automatically.
-          </div>
-        </div>
-        <div class="target-status" id="targetStatus" role="status"></div>
-      </fieldset>
-
-      <div class="submit-row">
-        <button class="submit" type="submit" id="submitBtn">Upload & Extract Frames</button>
-        <span class="progress-label" id="progressLabel"></span>
+  <!-- two dropzones side by side -->
+  <div class="dropzone-row">
+    <label class="dropzone" id="dzSide" for="sideInput">
+      <input type="file" id="sideInput" name="side_video" accept="video/*" required>
+      <div class="dz-icon">S</div>
+      <div class="dz-text">
+        <div class="dz-label">Side camera video</div>
+        <div class="dz-sub" id="sideSub">drop file or click to browse</div>
+        <div class="dz-filename" id="sideFilename"></div>
       </div>
+    </label>
 
-      <div class="progress-wrap" id="progressWrap">
-        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+    <label class="dropzone" id="dzBack" for="backInput">
+      <input type="file" id="backInput" name="back_video" accept="video/*" required>
+      <div class="dz-icon">B</div>
+      <div class="dz-text">
+        <div class="dz-label">Back camera video</div>
+        <div class="dz-sub" id="backSub">drop file or click to browse</div>
+        <div class="dz-filename" id="backFilename"></div>
       </div>
+    </label>
+  </div>
 
-      <div id="syncStatus" style="display:none; margin-top:10px; padding:12px 14px; border:1px solid var(--border); border-radius:10px; background:var(--card);">
-        <div id="syncStatusTitle" style="font-size:13px; font-weight:600; margin-bottom:4px;">Preparing…</div>
-        <div id="syncStatusDetail" style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted);"></div>
-      </div>
-
-    </form>
-  </section>
-
+  <!-- uploaded clips preview -->
   <section class="preview-panel">
     <div class="preview-heading">
       <div>
@@ -442,7 +440,7 @@
       <span class="preview-count" id="previewCount">0 / 2</span>
     </div>
 
-<div class="preview-grid">
+    <div class="preview-grid">
       <div class="preview-card">
         <div class="preview-card-header">
           <div style="min-width:0;">
@@ -483,7 +481,46 @@
       then the calibration page opens.
     </div>
   </section>
-</div>
+
+  <!-- right column: landing target (top) + upload button (bottom) -->
+  <aside class="side-panel">
+    <fieldset class="target-setup" id="targetSetup">
+      <legend>Landing target</legend>
+
+      <label class="target-opt">
+        <input type="radio" name="target_mode" value="corners" checked>
+        <span><strong>All four corners (GCP3&ndash;GCP6)</strong>
+          <small>Default. The nearest corner of the service box is the target.</small></span>
+      </label>
+      <label class="target-opt">
+        <input type="radio" name="target_mode" value="point">
+        <span><strong>One grid point</strong>
+          <small>Pick the one intersection of the grid you want the serve to land on.</small></span>
+      </label>
+
+      <div class="target-grid-wrap" id="targetGridWrap" hidden>
+        <svg id="targetGrid" viewBox="0 0 270 382" role="group" aria-label="Landing target grid"></svg>
+        <div class="target-readout" id="targetReadout"></div>
+      </div>
+      <div class="target-status" id="targetStatus" role="status"></div>
+    </fieldset>
+
+    <div class="submit-area">
+      <div class="progress-wrap" id="progressWrap">
+        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+        <span class="progress-label" id="progressLabel"></span>
+      </div>
+
+      <div id="syncStatus" style="display:none; padding:12px 14px; border:1px solid var(--border); border-radius:10px; background:var(--card);">
+        <div id="syncStatusTitle" style="font-size:13px; font-weight:600; margin-bottom:4px;">Preparing…</div>
+        <div id="syncStatusDetail" style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted);"></div>
+      </div>
+
+      <button class="submit" type="submit" id="submitBtn">Upload & Extract Frames</button>
+    </div>
+  </aside>
+
+</form>
 
 <script>
 // ---- landing target chooser (saved to the server as soon as it changes) ----

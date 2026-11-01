@@ -248,65 +248,93 @@ def run_evaluation_job(job_id):
                 message=f"Processing frame {current} / {total}",
             )
 
-        multi = bool((get_evaluation_job(job_id) or {}).get("multi_serve"))
-
+        # The number of serves is decided automatically -- the user is not asked.
+        # Pass 1 always runs the multi-serve tracker (it ignores shuttles resting
+        # on the court and picks the best side/back pair per frame), then
+        # multi_serve.split_serves() counts the serves from the trajectory itself
+        # (launch above LAUNCH_Z_M, floor contact after an apex, detection gaps).
+        #   >= 2 serves -> multi-serve report (dashboard pager)
+        #   exactly 1   -> normal single-serve report
+        #   0 found     -> fall back to the original single-serve tracker
         trajectory, motion_diagnostics = tracker.process_videos(
             os.path.join(UPLOAD_VIDEO_DIR, "side_sync.mp4"),
             os.path.join(UPLOAD_VIDEO_DIR, "back_sync.mp4"),
             progress_callback=progress_callback,
-            multi_serve=multi,
+            multi_serve=True,
         )
 
         warnings = build_trajectory_warnings(motion_diagnostics)
 
-        if len(trajectory) == 0:
-            message = "No trajectory points detected."
-            if multi:
-                # Say where the detections were lost instead of only that none were found.
-                debug_path = write_multi_serve_debug(motion_diagnostics, [], [])
-                message = explain_multi_serve_failure(motion_diagnostics, [], [], debug_path)
-            update_evaluation_job(
-                job_id,
-                status="error",
-                error=message,
-                warnings=warnings,
-            )
-            return
-
-        update_evaluation_job(
-            job_id,
-            status="evaluating",
-            message="Calculating serve performance…",
-            current=get_evaluation_job(job_id).get("total", 0),
-        )
-
-        # serve_type defaults to "auto": the evaluator classifies short vs.
-        # high/long serve itself from where the shuttle actually landed.
         # service_side comes from the calibration the trajectory was
         # triangulated with: right = Y 0..+2.59 m is IN, left = Y -2.59..0 m.
+        # serve_type defaults to "auto": the evaluator classifies short vs.
+        # high/long serve itself from where the shuttle actually landed.
         service_side = read_saved_service_side()
         landing_target = read_landing_target()
 
-        if multi:
+        report, serves, discarded = None, [], []
+        if len(trajectory) > 0:
+            update_evaluation_job(
+                job_id,
+                status="evaluating",
+                message="Finding and scoring serves…",
+                current=get_evaluation_job(job_id).get("total", 0),
+            )
             report, serves, discarded = build_multi_serve_report(
                 trajectory, motion_diagnostics, service_side, warnings, landing_target
             )
-            debug_path = write_multi_serve_debug(motion_diagnostics, serves, discarded)
-            if report is None:
+        debug_path = write_multi_serve_debug(motion_diagnostics, serves, discarded)
+
+        if report is not None:
+            if report["serve_count"] > 1:
+                report["detection_mode"] = "multi"
+            else:
+                # One serve: present it exactly like a normal single-serve run.
+                for key in ("shots", "serve_count", "average_score", "discarded_fragments"):
+                    report.pop(key, None)
+                report["detection_mode"] = "single"
+            chart_serves = serves
+        else:
+            # The multi-serve tracker found no serve. Keep the original behaviour
+            # as a safety net: treat the whole clip as one serve (this re-runs
+            # YOLO, so it only happens when the first pass found nothing).
+            multi_message = explain_multi_serve_failure(
+                motion_diagnostics, trajectory, discarded, debug_path
+            )
+            print(f"[evaluate] no serve found automatically, falling back to single-serve mode. {multi_message}")
+            update_evaluation_job(
+                job_id,
+                status="processing",
+                current=0,
+                message="No separate serve found - retrying as a single serve…",
+            )
+            trajectory, motion_diagnostics = tracker.process_videos(
+                os.path.join(UPLOAD_VIDEO_DIR, "side_sync.mp4"),
+                os.path.join(UPLOAD_VIDEO_DIR, "back_sync.mp4"),
+                progress_callback=progress_callback,
+                multi_serve=False,
+            )
+            warnings = build_trajectory_warnings(motion_diagnostics)
+
+            if len(trajectory) == 0:
                 update_evaluation_job(
                     job_id,
                     status="error",
-                    error=explain_multi_serve_failure(
-                        motion_diagnostics, trajectory, discarded, debug_path
-                    ),
+                    error="No trajectory points detected. " + multi_message,
                     warnings=warnings,
                 )
                 return
-            chart_serves = serves
-        else:
+
+            update_evaluation_job(
+                job_id,
+                status="evaluating",
+                message="Calculating serve performance…",
+                current=get_evaluation_job(job_id).get("total", 0),
+            )
             report = evaluate_serve_performance(
                 trajectory, service_side=service_side, landing_target=landing_target
             )
+            report["detection_mode"] = "single_fallback"
             chart_serves = None
 
         save_trajectory_chart(
@@ -1047,12 +1075,9 @@ def run_evaluation():
     if not os.path.exists(CALIBRATION_FILE):
         return jsonify({"error": "Calibration has not been saved yet."}), 400
 
-    options = request.get_json(silent=True) or {}
-
     job_id = uuid.uuid4().hex
     job = {
         "job_id": job_id,
-        "multi_serve": bool(options.get("multi_serve")),
         "status": "starting",
         "current": 0,
         "total": 0,
