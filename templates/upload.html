@@ -122,14 +122,18 @@
      (the card spans the dropzone, preview and button rows; the last row is 1fr so the
      button sits directly under the preview panel and the card sets the overall height). */
   .page-layout {
-    --side-w: 396px;
+    /* Layout width grows with the window (i.e. when the browser is zoomed out) so the page keeps the
+       same proportions: 1480px at a 1827px-wide window (what looks right at 67% zoom), 81% of the
+       window beyond that. Left card, gaps and diagram are all derived from it. */
+    --layout-w: clamp(1480px, 81vw, 2800px);
+    --side-w: calc(var(--layout-w) * 0.2676);                /* 396px at 1480px */
     width: 100%;
-    max-width: 1480px;
+    max-width: var(--layout-w);
     margin: 0 auto;
     display: grid;
     grid-template-columns: var(--side-w) minmax(0, 1fr);
     grid-template-rows: auto auto auto 1fr;
-    column-gap: 52px;
+    column-gap: calc(var(--layout-w) * 0.0351);               /* 52px at 1480px */
     align-items: start;
   }
 
@@ -151,7 +155,7 @@
 
   .submit-area {
     grid-column: 2; grid-row: 4;
-    margin-top: 24px;
+    margin-top: 6px;
     display: flex; flex-direction: column; gap: 10px;
   }
 
@@ -225,10 +229,10 @@
 
   /* The diagram shrinks with the window height so the whole card fits on screen without
      scrolling: 480px = everything above/below it (topbar, title, tabs, radios, readout, padding);
-     0.546 = the diagram's width/height ratio (226/414). Never larger than 312px, never smaller than 150px. */
+     0.546 = the diagram's width/height ratio (226/414). Never larger than 79% of the card, never smaller than 150px. */
   #courtMap {
     display: block;
-    width: min(100%, 312px, max(150px, calc((100vh - 480px) * 0.546)));
+    width: min(100%, calc(var(--side-w) * 0.788), max(150px, calc((100vh - 480px) * 0.546)));   /* 312px at 1480px */
     margin: 0 auto 18px;
   }
   #courtMap .ct-label {
@@ -248,9 +252,10 @@
   #courtMap .tg-cell.selected .tg-dot { fill: var(--line); }
   #courtMap .tg-cell.selected .tg-ring { stroke: var(--line); stroke-width: 2.5; }
 
-  .target-readout { font-size: 12.5px; font-weight: 700; margin-top: 10px; min-height: 18px; }
+  .target-readout { font-size: 12.5px; font-weight: 700; margin-top: 10px; }
+  .target-readout:empty, .target-status:empty { display: none; }
   .target-legend { font-size: 11px; line-height: 1.5; color: var(--muted); margin-top: 4px; }
-  .target-status { font-size: 11.5px; margin-top: 8px; min-height: 15px; color: var(--muted); }
+  .target-status { font-size: 11.5px; margin-top: 8px; color: var(--muted); }
   .target-status.ok { color: var(--court); }
   .target-status.err { color: var(--danger); }
   button.submit {
@@ -427,7 +432,7 @@
 
   <header class="page-head">
     <h1>Serve Evaluator</h1>
-    <p class="subtitle"></p>
+    <p class="subtitle">Upload serve clips for evaluation</p>
     <div id="formError"></div>
   </header>
 
@@ -533,14 +538,14 @@
 
   <!-- upload button (under the preview panel) -->
   <div class="submit-area">
-    <div class="progress-wrap" id="progressWrap">
-      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
-      <span class="progress-label" id="progressLabel"></span>
-    </div>
-
     <div id="syncStatus" style="display:none; padding:12px 14px; border:1px solid var(--border); border-radius:10px; background:var(--card);">
-      <div id="syncStatusTitle" style="font-size:13px; font-weight:600; margin-bottom:4px;">Preparing…</div>
-      <div id="syncStatusDetail" style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted);"></div>
+      <div id="syncStatusTitle" style="font-size:13px; font-weight:600; margin-bottom:8px;">Preparing…</div>
+
+      <div class="progress-wrap" id="progressWrap">
+        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+        <span class="progress-label" id="progressLabel"></span>
+      </div>
+
     </div>
 
     <button class="submit" type="submit" id="submitBtn">Upload & Extract Frames</button>
@@ -696,7 +701,7 @@ const serviceChoice = { side: "right" };
   }
 
   async function save(next) {
-    say("Saving\u2026");
+    say("");
     try {
       const resp = await fetch("/api/landing_target", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(next)
@@ -704,8 +709,6 @@ const serviceChoice = { side: "right" };
       const data = await resp.json();
       if (!resp.ok || data.error) throw new Error(data.error || "Could not save the target.");
       target = data.target; grid = data.grid;
-      say(target.mode === "point" ? "Saved: the landing score will aim at this grid point."
-                                  : "Saved: the landing score will aim at the nearest corner.", "ok");
     } catch (err) {
       say(err.message || "Could not reach the server.", "err");
     }
@@ -872,7 +875,8 @@ form.addEventListener("submit", (e) => {
   progressWrap.style.display = "block";
   document.getElementById("syncStatus").style.display = "block";
   document.getElementById("syncStatusTitle").textContent = "Uploading videos…";
-  document.getElementById("syncStatusDetail").textContent = "Please keep this page open.";
+  // the progress bar and status box appear below the clips; scroll just enough to show them
+  submitBtn.scrollIntoView({ behavior: "smooth", block: "nearest" });
 
   xhr.upload.addEventListener("progress", (e) => {
     if (e.lengthComputable) {
@@ -932,7 +936,6 @@ function pollUploadJob(statusUrl) {
     .then(r => r.json())
     .then(job => {
       const title = document.getElementById("syncStatusTitle");
-      const detail = document.getElementById("syncStatusDetail");
 
       if (job.status === "extracting") {
         title.textContent = "Extracting frames…";
@@ -942,21 +945,15 @@ function pollUploadJob(statusUrl) {
         progressFill.style.width = pct + "%";
         progressLabel.textContent =
           `${job.current} / ${job.total} frames`;
-        detail.textContent = job.message || "Reading the uploaded videos frame by frame.";
       } else if (job.status === "matching") {
         title.textContent = "Synchronizing cameras…";
         progressFill.style.width = "100%";
         progressLabel.textContent = "Matching frame timing";
-        detail.textContent = job.message || "Finding the best 1-to-1 frame offset.";
       } else if (job.status === "done") {
         title.textContent = "✓ Videos ready";
         progressFill.style.width = "100%";
         progressLabel.textContent =
           `${job.pair_count || 0} synchronized frame pairs`;
-        detail.textContent =
-          job.offset !== null && job.offset !== undefined
-            ? `Frame offset: ${job.offset} · Synchronized previews are ready.`
-            : "Synchronized frames and previews are ready.";
 
         // Point both preview players at the server-hosted copies used for
         // synchronization, so what you see matches what was processed.
@@ -987,7 +984,6 @@ function pollUploadJob(statusUrl) {
         // Sync Verification is intentionally NOT opened here. It remains
         // available from the "Check Synchronization" debug button on the
         // calibration page.
-        detail.textContent += " Opening calibration…";
         setTimeout(() => {
           window.location.href = "/calibrate?side=" + encodeURIComponent(serviceChoice.side);
         }, 900);
@@ -995,7 +991,6 @@ function pollUploadJob(statusUrl) {
         return;
       } else if (job.status === "error") {
         title.textContent = "Synchronization failed";
-        detail.textContent = job.error || "Unknown processing error.";
         formError.textContent = job.error || "Automatic synchronization failed.";
         formError.style.display = "block";
         submitBtn.disabled = false;
@@ -1003,7 +998,6 @@ function pollUploadJob(statusUrl) {
         return;
       } else {
         title.textContent = "Preparing…";
-        detail.textContent = job.message || "Starting automatic processing.";
       }
 
       setTimeout(() => pollUploadJob(statusUrl), 500);

@@ -170,7 +170,7 @@
 
   .reference-card img {
     width: 100%;
-    object-fit: cover;
+    object-fit: contain;
     display: block;
     border-radius: 6px;
   }
@@ -368,10 +368,11 @@
     padding: 10px;
     box-shadow: 0 1px 2px rgba(0,0,0,.04);
     border: 1px solid var(--border);
-    width: 100%;
+    width: 95%;
     flex: none;                   /* height comes from the video, not from the viewport */
     display: block;
     overflow: hidden;
+    margin: 0 auto;
   }
 
   .cam-stage {
@@ -647,8 +648,6 @@
       <div class="evaluate-panel">
         <div id="evaluateForm">
           <h3>Run evaluation</h3>
-          <p class="target-note"><strong>Landing target:</strong> {{ landing_target_text }}.
-            <a href="/">Change on the upload page</a></p>
           <div class="evaluate-row">
             <button class="btn btn-primary" id="evaluateBtn" disabled>Run Evaluation</button>
           </div>
@@ -832,12 +831,25 @@ function drawPoint(ctx, cam, i) {
   const review = needsReview(cam, i);
   const isDragging = dragging && dragging.cam === cam && dragging.index === i;
 
-  ctx.fillStyle = review ? "#e8a23a" : "#2ecc71";
-  ctx.beginPath();
   const markerRadius = cam === "back"
     ? (isDragging ? 13 : 10)
     : (isDragging ? 9 : 7);
-  ctx.arc(x, y, markerRadius, 0, 2 * Math.PI);
+
+  // Auto-detected net points can fall slightly outside the camera frame.
+  // Keep the real coordinates unchanged, but draw their handles just inside
+  // the nearest canvas edge so the user can still grab and correct them.
+  const displayX = Math.max(
+    markerRadius + 2,
+    Math.min(ctx.canvas.width - markerRadius - 2, x)
+  );
+  const displayY = Math.max(
+    markerRadius + 2,
+    Math.min(ctx.canvas.height - markerRadius - 2, y)
+  );
+
+  ctx.fillStyle = review ? "#e8a23a" : "#2ecc71";
+  ctx.beginPath();
+  ctx.arc(displayX, displayY, markerRadius, 0, 2 * Math.PI);
   ctx.fill();
 
   ctx.lineWidth = cam === "back" ? 3 : 2;
@@ -845,13 +857,17 @@ function drawPoint(ctx, cam, i) {
   ctx.stroke();
 
   ctx.fillStyle = cam === "side"
-  ? (review ? "#e8a23a" : "#000")
-  : (review ? "#e8a23a" : "#dfe6e9");
+    ? (review ? "#e8a23a" : "#000")
+    : (review ? "#e8a23a" : "#dfe6e9");
   ctx.font = cam === "back"
     ? "bold 25px 'JetBrains Mono', monospace"
     : "bold 15px 'JetBrains Mono', monospace";
   const labelOffset = cam === "back" ? 14 : 11;
-  ctx.fillText(`GCP${i}${review ? " ?" : ""}`, x + labelOffset, y - labelOffset);
+  ctx.fillText(
+    `GCP${i}${review ? " ?" : ""}`,
+    displayX + labelOffset,
+    displayY - labelOffset
+  );
 }
 
 function setView(cam, pinned) {
@@ -910,9 +926,25 @@ function canvasPos(cam, e) {
 
 function nearestPointIndex(cam, x, y, maxDist) {
   let best = -1, bestDist = maxDist;
+  const canvas = canvasFor(cam);
+
   pointsFor(cam).forEach((p, i) => {
-    const d = Math.hypot(p[0] - x, p[1] - y);
-    if (d < bestDist) { bestDist = d; best = i; }
+    // Match against the visible edge handle, not an off-canvas auto guess.
+    const markerRadius = cam === "back" ? 10 : 7;
+    const displayX = Math.max(
+      markerRadius + 2,
+      Math.min(canvas.width - markerRadius - 2, p[0])
+    );
+    const displayY = Math.max(
+      markerRadius + 2,
+      Math.min(canvas.height - markerRadius - 2, p[1])
+    );
+
+    const d = Math.hypot(displayX - x, displayY - y);
+    if (d < bestDist) {
+      bestDist = d;
+      best = i;
+    }
   });
   return best;
 }

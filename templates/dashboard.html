@@ -32,7 +32,7 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
 .score-value{font:700 25px "Space Grotesk",sans-serif}.score-unit{font:9px "JetBrains Mono",monospace;color:var(--muted);margin-top:6px}
 .score-label{font:10px "JetBrains Mono",monospace;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
 .eyebrow,.section-label{font:10px "JetBrains Mono",monospace;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.08em}
-.section-label{margin:10px 0 8px}
+.section-label{margin:0 0 8px}
 .warning-card{padding:13px 15px;margin-bottom:9px;border-color:var(--warn-border);background:var(--warn-bg)}
 .warning-card[hidden]{display:none}
 .warning-bar{margin-bottom:9px}
@@ -46,7 +46,7 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
 .detail-grid{display:grid;grid-template-columns:minmax(0,1fr) 395px;gap:10px;align-items:stretch}
 .landing-card{padding:12px;display:flex;flex-direction:column;min-height:0}
 .camera-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
-.camera-card{padding:12px}
+.camera-card{padding:12px;height:fit-content}
 .camera-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
 .camera-name{font:600 11px "Space Grotesk",sans-serif}.camera-tag{font:8px "JetBrains Mono",monospace;color:var(--court);background:var(--court-dim);padding:3px 5px;border-radius:999px}
 .camera-frame{height:292px;border-radius:6px;overflow:hidden;background:#f8faf7;display:flex;align-items:center;justify-content:center}
@@ -198,7 +198,6 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
     </div>
   </div>
 
-  <div class="section-label summary-label">Trajectory summary</div>
   <div class="card summary-card" id="summaryCard">
     <div class="summary-left">
       <div class="summary-head">
@@ -329,9 +328,7 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
       mapFrame.appendChild(el);
       return {el,label:el.querySelector(".landing-label"),xy,inStatus};
     });
-    const legend=document.getElementById("mapLegend");
-    if(shots.length>1)legend.textContent="All serves are shown. The large ringed marker is the serve selected in the summary below; click a numbered dot to select it.";
-    else legend.style.display="none";
+
 
     function render(){
       const s=shots[index]||current, xy=s.landing_coordinate_m||current.landing_coordinate_m;
