@@ -117,44 +117,41 @@
   }
 
   /* ---- page grid ----
-     Left column : title -> two dropzones side by side -> "Uploaded clips" panel
-     Right column: "Landing target" box on top, Upload button anchored to the bottom
-     (the right column spans the dropzone row + preview panel, so the button lines
-     up with the bottom of the preview panel; if the target grid is expanded and the
-     right column becomes taller, the last row grows and the button simply follows). */
+     Left column : service-side tabs + court diagram / landing target card
+     Right column: two dropzones side by side -> "Uploaded clips" panel -> Upload button
+     (the card spans the dropzone, preview and button rows; the last row is 1fr so the
+     button sits directly under the preview panel and the card sets the overall height). */
   .page-layout {
     --side-w: 396px;
     width: 100%;
     max-width: 1480px;
     margin: 0 auto;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) var(--side-w);
-    grid-template-rows: auto auto 1fr;
+    grid-template-columns: var(--side-w) minmax(0, 1fr);
+    grid-template-rows: auto auto auto 1fr;
     column-gap: 52px;
     align-items: start;
   }
 
-  .page-head { grid-column: 1; grid-row: 1; padding-top: 22px; }
+  .page-head { grid-column: 1 / -1; grid-row: 1; padding-top: 22px; }
 
   .dropzone-row {
-    grid-column: 1; grid-row: 2;
+    grid-column: 2; grid-row: 2;
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, var(--side-w)));  /* each dropzone as wide as the right column */
-    gap: 32px;
-    margin-bottom: 32px;
+    grid-template-columns: repeat(2, minmax(0, var(--side-w)));  /* each dropzone as wide as the left card */
+    gap: 40px;
+    margin-bottom: 24px;
   }
 
-  .side-panel {
-    grid-column: 2; grid-row: 2 / 4;
-    align-self: stretch;
+  .target-card {
+    grid-column: 1; grid-row: 2 / 5;
+    align-self: start;
     min-width: 0;
-    display: flex; flex-direction: column;
-    justify-content: space-between;
-    gap: 32px;                                   /* minimum space between target box and button */
   }
 
   .submit-area {
-    margin-top: auto;
+    grid-column: 2; grid-row: 4;
+    margin-top: 24px;
     display: flex; flex-direction: column; gap: 10px;
   }
 
@@ -197,38 +194,61 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 4px;
   }
 
-  .target-setup {
-    border: 1px solid var(--border);
-    border-radius: 12px;
+  /* ---- service side + landing target card ---- */
+  .target-card {
+    border: 1px solid #6f7872;
+    border-radius: 14px;
     background: var(--card);
-    padding: 14px 16px 12px;
+    overflow: hidden;
     margin: 0;
-    min-width: 0;
   }
-  .target-setup legend {
-    font-family: 'Space Grotesk', sans-serif;
-    font-weight: 700;
-    font-size: 14px;
-    padding: 0 6px;
+  .side-tabs {
+    display: grid; grid-template-columns: 1fr 1fr;
+    border-bottom: 1px solid #6f7872;
   }
+  .side-tab {
+    font-family: 'Inter', sans-serif; font-weight: 500; font-size: 14.5px;
+    color: var(--ink); background: var(--card);
+    border: 0; padding: 10px 12px; cursor: pointer;
+    transition: background .12s;
+  }
+  .side-tab + .side-tab { border-left: 1px solid #6f7872; }
+  .side-tab:hover { background: #f1f5f1; }
+  .side-tab.selected { background: var(--court-dim); }
+  .side-tab:focus-visible { outline: 2px solid var(--court-light); outline-offset: -3px; }
+  .target-body { padding: 15px 20px 14px; min-width: 0; }
+
   .target-help { font-size: 12px; line-height: 1.5; color: var(--muted); margin: 0 0 10px 0; }
   .target-opt { display: flex; align-items: flex-start; gap: 9px; font-size: 13px; cursor: pointer; margin: 0 0 8px 0; }
   .target-opt input { margin-top: 3px; }
   .target-opt small { display: block; font-size: 11.5px; line-height: 1.4; color: var(--muted); margin-top: 1px; }
-  .target-grid-wrap { margin-top: 6px; }
-  #targetGrid { display: block; width: 100%; max-width: 290px; margin: 0 auto; }
-  #targetGrid .tg-hit { fill: transparent; cursor: pointer; }
-  #targetGrid .tg-hit:focus { outline: none; }
-  #targetGrid .tg-dot { fill: #1c2521; pointer-events: none; }
-  #targetGrid .tg-corner { fill: #7b2d9e; }
-  #targetGrid .tg-cell:hover .tg-dot,
-  #targetGrid .tg-cell:focus-within .tg-dot { fill: var(--court-light); }
-  #targetGrid .tg-cell:hover .tg-ring,
-  #targetGrid .tg-cell:focus-within .tg-ring { stroke: var(--court-light); }
-  #targetGrid .tg-ring { fill: none; stroke: transparent; stroke-width: 2; pointer-events: none; }
-  #targetGrid .tg-cell.selected .tg-dot { fill: var(--line); }
-  #targetGrid .tg-cell.selected .tg-ring { stroke: var(--line); stroke-width: 3; }
-  .target-readout { font-size: 12.5px; font-weight: 600; margin-top: 8px; min-height: 18px; }
+
+  /* The diagram shrinks with the window height so the whole card fits on screen without
+     scrolling: 480px = everything above/below it (topbar, title, tabs, radios, readout, padding);
+     0.546 = the diagram's width/height ratio (226/414). Never larger than 312px, never smaller than 150px. */
+  #courtMap {
+    display: block;
+    width: min(100%, 312px, max(150px, calc((100vh - 480px) * 0.546)));
+    margin: 0 auto 18px;
+  }
+  #courtMap .ct-label {
+    font-family: 'Inter', sans-serif; font-weight: 700; font-size: 7.5px;
+    fill: #16167a; text-anchor: middle; pointer-events: none;
+  }
+  #courtMap .ct-num {
+    font-family: 'Inter', sans-serif; font-weight: 600; font-size: 7.5px;
+    fill: var(--ink); text-anchor: middle; pointer-events: none;
+  }
+  #courtMap .tg-hit { fill: transparent; cursor: pointer; }
+  #courtMap .tg-hit:focus { outline: none; }
+  #courtMap .tg-dot { fill: #1c2521; pointer-events: none; }
+  #courtMap .tg-ring { fill: none; stroke: transparent; stroke-width: 2; pointer-events: none; }
+  #courtMap .tg-cell:hover .tg-ring,
+  #courtMap .tg-cell:focus-within .tg-ring { stroke: #fff; }
+  #courtMap .tg-cell.selected .tg-dot { fill: var(--line); }
+  #courtMap .tg-cell.selected .tg-ring { stroke: var(--line); stroke-width: 2.5; }
+
+  .target-readout { font-size: 12.5px; font-weight: 700; margin-top: 10px; min-height: 18px; }
   .target-legend { font-size: 11px; line-height: 1.5; color: var(--muted); margin-top: 4px; }
   .target-status { font-size: 11.5px; margin-top: 8px; min-height: 15px; color: var(--muted); }
   .target-status.ok { color: var(--court); }
@@ -281,8 +301,8 @@
     border: 1px solid var(--border);
     border-radius: 16px;
     padding: 24px;
-    grid-column: 1; grid-row: 3;
-    align-self: start;                           /* keep natural height even if the right column is taller */
+    grid-column: 2; grid-row: 3;
+    align-self: start;                           /* keep natural height even if the left card is taller */
   }
   .preview-heading {
     display: flex;
@@ -350,13 +370,16 @@
     .preview-panel { padding: 28px; }
   }
 
-  /* narrower screens: single column — title, dropzones, previews, then target + button */
+  /* narrower screens: single column — title, dropzones, previews, then side/target card + button */
   @media (max-width: 1100px) {
     .page-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
-    .page-head, .dropzone-row, .preview-panel, .side-panel { grid-column: 1; grid-row: auto; }
+    .page-head, .dropzone-row, .preview-panel, .target-card, .submit-area { grid-column: 1; grid-row: auto; }
     .page-head { padding-top: 0; margin-bottom: 0; }
-    .preview-panel { align-self: stretch; margin-bottom: 28px; }
-    .dropzone-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .dropzone-row { order: 1; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+    .preview-panel { order: 2; align-self: stretch; margin-bottom: 28px; }
+    .target-card { order: 3; margin-bottom: 28px; }
+    #courtMap { width: min(100%, 312px); }
+    .submit-area { order: 4; margin-top: 0; }
   }
 
   @media (max-width: 900px) {
@@ -404,9 +427,35 @@
 
   <header class="page-head">
     <h1>Serve Evaluator</h1>
-    <p class="subtitle">Upload serve clips for evaluation</p>
+    <p class="subtitle"></p>
     <div id="formError"></div>
   </header>
+
+  <!-- left column: service side tabs + court diagram / landing target -->
+  <aside class="target-card" id="targetSetup">
+    <div class="side-tabs" role="tablist" aria-label="Service side">
+      <button type="button" class="side-tab" id="tabLeft" role="tab" data-side="left" aria-selected="false">Left Side</button>
+      <button type="button" class="side-tab selected" id="tabRight" role="tab" data-side="right" aria-selected="true">Right Side</button>
+    </div>
+
+    <div class="target-body">
+      <svg id="courtMap" viewBox="0 0 226 414" role="group" aria-label="Court diagram with landing target"></svg>
+
+      <label class="target-opt">
+        <input type="radio" name="target_mode" value="corners" checked>
+        <span><strong>All four corners (GCP3&ndash;GCP6)</strong>
+          <small>Default. The nearest corner of the service box is the target.</small></span>
+      </label>
+      <label class="target-opt">
+        <input type="radio" name="target_mode" value="point">
+        <span><strong>One grid point</strong>
+          <small>Pick the one intersection of the grid you want the serve to land on.</small></span>
+      </label>
+
+      <div class="target-readout" id="targetReadout"></div>
+      <div class="target-status" id="targetStatus" role="status"></div>
+    </div>
+  </aside>
 
   <!-- two dropzones side by side -->
   <div class="dropzone-row">
@@ -482,60 +531,50 @@
     </div>
   </section>
 
-  <!-- right column: landing target (top) + upload button (bottom) -->
-  <aside class="side-panel">
-    <fieldset class="target-setup" id="targetSetup">
-      <legend>Landing target</legend>
-
-      <label class="target-opt">
-        <input type="radio" name="target_mode" value="corners" checked>
-        <span><strong>All four corners (GCP3&ndash;GCP6)</strong>
-          <small>Default. The nearest corner of the service box is the target.</small></span>
-      </label>
-      <label class="target-opt">
-        <input type="radio" name="target_mode" value="point">
-        <span><strong>One grid point</strong>
-          <small>Pick the one intersection of the grid you want the serve to land on.</small></span>
-      </label>
-
-      <div class="target-grid-wrap" id="targetGridWrap" hidden>
-        <svg id="targetGrid" viewBox="0 0 270 382" role="group" aria-label="Landing target grid"></svg>
-        <div class="target-readout" id="targetReadout"></div>
-      </div>
-      <div class="target-status" id="targetStatus" role="status"></div>
-    </fieldset>
-
-    <div class="submit-area">
-      <div class="progress-wrap" id="progressWrap">
-        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
-        <span class="progress-label" id="progressLabel"></span>
-      </div>
-
-      <div id="syncStatus" style="display:none; padding:12px 14px; border:1px solid var(--border); border-radius:10px; background:var(--card);">
-        <div id="syncStatusTitle" style="font-size:13px; font-weight:600; margin-bottom:4px;">Preparing…</div>
-        <div id="syncStatusDetail" style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted);"></div>
-      </div>
-
-      <button class="submit" type="submit" id="submitBtn">Upload & Extract Frames</button>
+  <!-- upload button (under the preview panel) -->
+  <div class="submit-area">
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+      <span class="progress-label" id="progressLabel"></span>
     </div>
-  </aside>
+
+    <div id="syncStatus" style="display:none; padding:12px 14px; border:1px solid var(--border); border-radius:10px; background:var(--card);">
+      <div id="syncStatusTitle" style="font-size:13px; font-weight:600; margin-bottom:4px;">Preparing…</div>
+      <div id="syncStatusDetail" style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted);"></div>
+    </div>
+
+    <button class="submit" type="submit" id="submitBtn">Upload & Extract Frames</button>
+  </div>
 
 </form>
 
 <script>
-// ---- landing target chooser (saved to the server as soon as it changes) ----
+// ---- service side + landing target chooser ----
+// The chosen side is carried to the calibration page (?side=left|right).
+// The landing target is saved to the server as soon as it changes.
+const serviceChoice = { side: "right" };
+
 (() => {
   const NS = "http://www.w3.org/2000/svg";
-  const svg = document.getElementById("targetGrid");
-  const wrap = document.getElementById("targetGridWrap");
+  const svg = document.getElementById("courtMap");
   const readout = document.getElementById("targetReadout");
   const status = document.getElementById("targetStatus");
   const radios = document.querySelectorAll('input[name="target_mode"]');
+  const sideTabs = document.querySelectorAll(".side-tab");
   let grid = { cols: 7, rows: 9, x_min_m: 1.98, x_max_m: 6.70, width_m: 2.59 };
   let target = { mode: "corners" };
 
-  const PX = 62, LEFT = 54, TOP = 52;          // drawing scale (px per metre) and box origin
-  const boxW = grid => grid.width_m * PX, boxH = grid => (grid.x_max_m - grid.x_min_m) * PX;
+  try {
+    const saved = sessionStorage.getItem("serveSide");
+    if (saved === "left" || saved === "right") serviceChoice.side = saved;
+  } catch (e) { /* storage unavailable: keep the default */ }
+
+  // Court drawing, in SVG units (viewBox 0 0 226 414)
+  const COURT = {
+    outerL: 19, singlesL: 38, centre: 116, singlesR: 194, outerR: 212,
+    backFar: 9, longFar: 29, shortFar: 163, net: 201, shortNear: 241, longNear: 375, backNear: 395
+  };
+  const WHITE = "#fff", PURPLE = "#7b2d9e";
 
   function say(text, cls) { status.textContent = text; status.className = "target-status " + (cls || ""); }
 
@@ -545,6 +584,23 @@
     if (parent) parent.appendChild(e);
     return e;
   }
+  function line(x1, y1, x2, y2, extra) {
+    return el("line", Object.assign({ x1, y1, x2, y2, stroke: WHITE, "stroke-width": 3 }, extra || {}), svg);
+  }
+  function text(cls, x, y, str) { el("text", { class: cls, x, y }, svg).textContent = str; }
+  function dot(x, y, r, fill) { return el("circle", { cx: x, cy: y, r, fill: fill || PURPLE }, svg); }
+
+  // Grid column 0 is the CENTRE LINE on both sides (same as the server), so on the
+  // left side the columns run from the centre line (right edge of the box) out to
+  // the left sideline, and on the right side from the centre line out to the right
+  // sideline. The printed column numbers are 1-based, the same numbers the
+  // calibration page reports.
+  const boxX = () => serviceChoice.side === "left" ? [COURT.singlesL, COURT.centre] : [COURT.centre, COURT.singlesR];
+  const colX = c => {
+    const step = (COURT.singlesR - COURT.centre) / (grid.cols - 1);
+    return serviceChoice.side === "left" ? COURT.centre - c * step : COURT.centre + c * step;
+  };
+  const rowY = r => COURT.shortNear + r * (COURT.backNear - COURT.shortNear) / (grid.rows - 1);
 
   function pointText(col, row) {
     const x = grid.x_min_m + row * (grid.x_max_m - grid.x_min_m) / (grid.rows - 1);
@@ -553,33 +609,63 @@
            `column ${col + 1} of ${grid.cols} (${y.toFixed(2)} m from the centre line)`;
   }
 
-  function draw() {
-    svg.innerHTML = "";
-    const w = boxW(grid), h = boxH(grid);
-    el("rect", { x: LEFT, y: TOP, width: w, height: h, fill: "#f3f8f4", stroke: "#7b2d9e", "stroke-width": 2.5 }, svg);
-    el("text", { x: LEFT + w / 2, y: 16, "text-anchor": "middle", "font-size": 10, fill: "#5c6b62" }, svg).textContent = "\u2191 toward the net";
-    for (let c = 0; c < grid.cols; c++) {
-      const x = LEFT + c * w / (grid.cols - 1);
-      el("line", { x1: x, y1: TOP, x2: x, y2: TOP + h, stroke: "#9aa89f", "stroke-width": 1 }, svg);
-      el("text", { x, y: TOP - 8, "text-anchor": "middle", "font-size": 9, fill: "#5c6b62" }, svg).textContent = c + 1;
-    }
-    for (let r = 0; r < grid.rows; r++) {
-      const y = TOP + r * h / (grid.rows - 1);
-      el("line", { x1: LEFT, y1: y, x2: LEFT + w, y2: y, stroke: "#9aa89f", "stroke-width": 1 }, svg);
-      el("text", { x: LEFT - 10, y: y + 3, "text-anchor": "end", "font-size": 9, fill: "#5c6b62" }, svg).textContent = r + 1;
-    }
-    el("text", { x: LEFT, y: TOP + h + 18, "text-anchor": "start", "font-size": 9, fill: "#5c6b62" }, svg).textContent = "centre line";
-    el("text", { x: LEFT + w, y: TOP + h + 18, "text-anchor": "end", "font-size": 9, fill: "#5c6b62" }, svg).textContent = "sideline";
+  function drawCourt() {
+    const C = COURT;
+    el("rect", { x: 0, y: 0, width: 226, height: 414, fill: "#00b050" }, svg);
+    el("rect", { x: C.outerL, y: C.backFar, width: C.outerR - C.outerL, height: C.backNear - C.backFar,
+                 fill: "none", stroke: WHITE, "stroke-width": 3 }, svg);
+    [C.singlesL, C.singlesR].forEach(x => line(x, C.backFar, x, C.backNear));
+    [C.longFar, C.shortFar, C.shortNear, C.longNear].forEach(y => line(C.outerL, y, C.outerR, y));
+    line(C.centre, C.backFar, C.centre, C.shortFar);
+    line(C.centre, C.shortNear, C.centre, C.backNear);
+    line(C.outerL, C.net, C.outerR, C.net, { "stroke-dasharray": "10 6" });      // net
+  }
 
+  function drawNetPoints() {
+    [[COURT.singlesL, "GCP1"], [COURT.centre, "GCP0 : 0,0,0"], [COURT.singlesR, "GCP2"]].forEach(([x, name]) => {
+      dot(x, COURT.net, 4);
+      text("ct-label", x, COURT.net - 9, name);
+    });
+  }
+
+  function drawCorners() {
+    const [xa, xb] = boxX();
+    const w = xb - xa, h = COURT.backNear - COURT.shortNear;
+    el("rect", { x: xa, y: COURT.shortNear, width: w, height: h, fill: "none", stroke: PURPLE, "stroke-width": 4 }, svg);
+    el("rect", { x: xa, y: COURT.shortNear, width: w, height: h, fill: "none", stroke: WHITE, "stroke-width": 1.4 }, svg);
+    [[xa, COURT.shortNear, "GCP3", -8], [xb, COURT.shortNear, "GCP4", -8],
+     [xa, COURT.backNear, "GCP5", 13], [xb, COURT.backNear, "GCP6", 13]].forEach(([x, y, name, dy]) => {
+      dot(x, y, 4);
+      text("ct-label", x, y + dy, name);
+    });
+  }
+
+  function drawGrid() {
+    const [xa, xb] = boxX();
+    const lineAttrs = { stroke: "#f3e9f8", "stroke-opacity": 0.85, "stroke-width": 1 };
+    for (let c = 0; c < grid.cols; c++) {
+      const x = colX(c);
+      el("line", Object.assign({ x1: x, y1: COURT.shortNear, x2: x, y2: COURT.backNear }, lineAttrs), svg);
+      text("ct-num", x, COURT.shortNear - 8, c + 1);
+    }
+    const rowLabelX = serviceChoice.side === "left" ? (COURT.outerL + COURT.singlesL) / 2 - 1
+                                                    : (COURT.singlesR + COURT.outerR) / 2 + 1;
+    for (let r = 0; r < grid.rows; r++) {
+      const y = rowY(r);
+      el("line", Object.assign({ x1: xa, y1: y, x2: xb, y2: y }, lineAttrs), svg);
+      text("ct-num", rowLabelX, y + 2.6, r + 1);
+    }
     for (let r = 0; r < grid.rows; r++) {
       for (let c = 0; c < grid.cols; c++) {
-        const cx = LEFT + c * w / (grid.cols - 1), cy = TOP + r * h / (grid.rows - 1);
+        const cx = colX(c), cy = rowY(r);
         const corner = (c === 0 || c === grid.cols - 1) && (r === 0 || r === grid.rows - 1);
         const g = el("g", { class: "tg-cell", "data-col": c, "data-row": r }, svg);
-        el("circle", { class: "tg-ring", cx, cy, r: 8 }, g);
-        el("circle", { class: "tg-dot" + (corner ? " tg-corner" : ""), cx, cy, r: corner ? 5 : 3.5 }, g);
-        const hit = el("circle", { class: "tg-hit", cx, cy, r: 11, tabindex: 0, role: "button",
-                                   "aria-label": pointText(c, r) }, g);
+        const on = target.mode === "point" && target.col === c && target.row === r;
+        if (on) g.classList.add("selected");
+        el("circle", { class: "tg-ring", cx, cy, r: corner ? 9 : 5.5 }, g);
+        el("circle", { class: "tg-dot", cx, cy, r: corner ? 6 : 1.9 }, g);
+        const hit = el("circle", { class: "tg-hit", cx, cy, r: corner ? 6.5 : 6, tabindex: 0, role: "button",
+                                   "aria-label": pointText(c, r), "aria-pressed": on ? "true" : "false" }, g);
         const choose = () => choosePoint(c, r);
         hit.addEventListener("click", choose);
         hit.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(); } });
@@ -589,15 +675,23 @@
 
   function render() {
     radios.forEach(r => { r.checked = r.value === target.mode; });
-    const isPoint = target.mode === "point";
-    wrap.hidden = !isPoint;
-    if (isPoint) {
-      svg.querySelectorAll(".tg-cell").forEach(g => {
-        const on = Number(g.dataset.col) === target.col && Number(g.dataset.row) === target.row;
-        g.classList.toggle("selected", on);
-        g.querySelector(".tg-hit").setAttribute("aria-pressed", on ? "true" : "false");
-      });
-      readout.textContent = (target.col === undefined) ? "Click an intersection to choose the target." : "Target: " + pointText(target.col, target.row);
+    sideTabs.forEach(b => {
+      const on = b.dataset.side === serviceChoice.side;
+      b.classList.toggle("selected", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+    });
+
+    svg.innerHTML = "";
+    drawCourt();
+    drawNetPoints();
+    if (target.mode === "point") {
+      drawGrid();
+      readout.textContent = (target.col === undefined)
+        ? "Click an intersection to choose the target."
+        : "Target: " + pointText(target.col, target.row);
+    } else {
+      drawCorners();
+      readout.textContent = "";
     }
   }
 
@@ -620,18 +714,24 @@
 
   function choosePoint(col, row) { save({ mode: "point", col, row }); }
 
+  sideTabs.forEach(b => b.addEventListener("click", () => {
+    serviceChoice.side = b.dataset.side;
+    try { sessionStorage.setItem("serveSide", serviceChoice.side); } catch (e) { /* ignore */ }
+    render();
+  }));
+
   radios.forEach(r => r.addEventListener("change", () => {
     if (r.value === "corners") { save({ mode: "corners" }); }
     else if (target.mode === "point" && target.col !== undefined) { render(); }
     else {                                   // switched to "point" but nothing chosen yet: show the grid, save on click
-      target = { mode: "point" }; wrap.hidden = false; render();
-      say("Click an intersection of the grid to choose the target.");
+      target = { mode: "point" }; render(); say("");
     }
   }));
 
+  render();                                  // draw immediately; the saved target replaces it when it arrives
   fetch("/api/landing_target").then(r => r.json()).then(data => {
-    target = data.target; grid = data.grid; draw(); render();
-  }).catch(() => { draw(); render(); say("Could not load the saved target; defaults shown.", "err"); });
+    target = data.target; grid = data.grid; render();
+  }).catch(() => { render(); say("Could not load the saved target; defaults shown.", "err"); });
 })();
 
 function bytesToSize(bytes) {
@@ -889,7 +989,7 @@ function pollUploadJob(statusUrl) {
         // calibration page.
         detail.textContent += " Opening calibration…";
         setTimeout(() => {
-          window.location.href = "/calibrate";
+          window.location.href = "/calibrate?side=" + encodeURIComponent(serviceChoice.side);
         }, 900);
 
         return;
