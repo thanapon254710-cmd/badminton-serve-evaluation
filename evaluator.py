@@ -574,8 +574,8 @@ def evaluate_serve_performance(
     if landing_result["landing_status"] == "OUT":
         total_score = 0.0
         deductions.append(
-            f"Serve is OUT ({landing_result['landing_status_reason']}): "
-            "final score set to 0.0"
+            "Serve is OUT (Landing is outside the preferred drop box "
+            f"({area['label'].lower()})): final score set to 0.0"
         )
 
     final_score = float(np.clip(total_score, 0.0, 100.0))

@@ -137,14 +137,14 @@
     align-items: start;
   }
 
-  .page-head { grid-column: 1 / -1; grid-row: 1; padding-top: 22px; }
+  .page-head { grid-column: 1 / -1; grid-row: 1; padding-top: 16px; }
 
   .dropzone-row {
     grid-column: 2; grid-row: 2;
     display: grid;
     grid-template-columns: repeat(2, minmax(0, var(--side-w)));  /* each dropzone as wide as the left card */
     gap: 40px;
-    margin-bottom: 24px;
+    margin-bottom: 16px;
   }
 
   .target-card {
@@ -163,14 +163,14 @@
     font-family: 'Space Grotesk', sans-serif; font-size: 30px; margin: 0 0 6px 0;
     letter-spacing: -0.01em;
   }
-  .subtitle { color: var(--muted); font-size: 14.5px; margin: 0 0 32px 0; }
+  .subtitle { color: var(--muted); font-size: 14.5px; margin: 0 0 24px 0; }
 
   .dropzone {
     position: relative;
     border: 1.5px dashed var(--border);
     border-radius: 12px;
     background: var(--card);
-    padding: 22px;
+    padding: 16px;
     display: flex;
     align-items: center;
     gap: 16px;
@@ -372,7 +372,7 @@
 
   @media (min-width: 1300px) {
     .page-shell { padding-left: 56px; padding-right: 56px; }
-    .preview-panel { padding: 28px; }
+    .preview-panel { padding: 24px; }
   }
 
   /* narrower screens: single column — title, dropzones, previews, then side/target card + button */
@@ -528,11 +528,6 @@
           <video id="backPreview" controls playsinline preload="metadata"></video>
         </div>
       </div>
-    </div>
-
-    <div class="preview-note" id="previewNote">
-      Preview shows your uploaded video. Synchronization runs automatically after upload,
-      then the calibration page opens.
     </div>
   </section>
 

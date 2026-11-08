@@ -26,8 +26,8 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
 .step.active{font-weight:700;color:var(--ink)}.step-line{width:22px;height:1px;background:var(--border)}
 
 .card{background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 1px 2px rgba(0,0,0,.035)}
-.hero{min-height:140px;display:grid;grid-template-columns:minmax(0,1fr) 190px;gap:20px;padding:20px 15px;align-items:center}
-.hero-copy{min-width:0}.subtitle{font-size:12px;color:var(--muted);line-height:1.5;max-width:780px}
+.hero{min-height:100px;display:grid;grid-template-columns:minmax(0,1fr) 190px;gap:20px;padding:20px 15px;align-items:center}
+.hero-copy{min-width:0}.subtitle{font-size:12px;color:var(--muted);line-height:1.5;max-width:none}
 .score-box{height:100%;border-left:1px solid var(--border);display:flex;flex-direction:column;justify-content:center;align-items:center}
 .score-value{font:700 25px "Space Grotesk",sans-serif}.score-unit{font:9px "JetBrains Mono",monospace;color:var(--muted);margin-top:6px}
 .score-label{font:10px "JetBrains Mono",monospace;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
@@ -43,13 +43,13 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
 .warning-title{color:var(--warn);font:700 13px "Space Grotesk",sans-serif;margin:4px 0 6px}.warning-message{color:var(--warn);font-size:11px;line-height:1.45;margin-bottom:4px}
 .error-card{padding:20px;border-color:#f0d1ce}.error-title{color:var(--danger);font:700 18px "Space Grotesk",sans-serif;margin:5px 0}.error-message{font-size:12px;color:var(--muted);line-height:1.5}
 
-.detail-grid{display:grid;grid-template-columns:minmax(0,1fr) 395px;gap:10px;align-items:stretch}
+.detail-grid{display:grid;grid-template-columns:minmax(0,1fr) 395px;gap:10px;align-items:stretch;margin: 10px 0}
 .landing-card{padding:12px;display:flex;flex-direction:column;min-height:0}
 .camera-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
-.camera-card{padding:12px;height:fit-content}
+.camera-card{padding:12px;height:100%;display:flex;flex-direction:column}
 .camera-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
 .camera-name{font:600 11px "Space Grotesk",sans-serif}.camera-tag{font:8px "JetBrains Mono",monospace;color:var(--court);background:var(--court-dim);padding:3px 5px;border-radius:999px}
-.camera-frame{height:292px;border-radius:6px;overflow:hidden;background:#f8faf7;display:flex;align-items:center;justify-content:center}
+.camera-frame{height:292px;margin:auto 0;border-radius:6px;overflow:hidden;background:#f8faf7;display:flex;align-items:center;justify-content:center}
 .camera-frame img,.camera-frame video{width:100%;height:100%;object-fit:cover;display:block;background:#000}
 .video-fallback{font-size:13px;color:#111;display:none}
 .landing-title{font:600 14px "Space Grotesk",sans-serif;margin-bottom:9px}
@@ -73,7 +73,8 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
 .landing-out .landing-dot{background:var(--danger)}.landing-out .landing-crosshair{border-color:var(--danger)}.landing-out .landing-label{color:var(--danger)}
 .status-in{color:var(--court)}.status-out{color:var(--danger)}
 
-.summary-label{margin-top:11px}.summary-card{padding:11px 10px 10px;display:grid;grid-template-columns:1.8fr 1fr;gap:12px;min-height:168px}
+.summary-label{margin-top:11px}
+.summary-card{padding:11px 10px 10px;display:grid;grid-template-columns:1.8fr 1fr;gap:12px;min-height:168px}
 .summary-left{min-width:0}.summary-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
 .pager{display:flex;align-items:center;gap:6px;font:10px "JetBrains Mono",monospace;color:var(--muted)}
 .pager .arrow{border:1px solid var(--border);background:#fff;color:var(--ink);width:26px;height:26px;border-radius:7px;font:13px "JetBrains Mono",monospace;cursor:pointer;line-height:1}
@@ -89,10 +90,11 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
 .target-marker span{position:absolute;left:-9px;top:-9px;width:18px;height:18px;border-radius:50%;border:2px dashed #e8b13a;background:rgba(232,177,58,.25)}
 .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .metric{padding:10px 11px;min-height:83px}.metric-label{font-size:9px;color:var(--muted);font-weight:700;margin-bottom:6px}
-.metric-value{font:700 18px "Space Grotesk",sans-serif;letter-spacing:-.02em}.metric-unit{font:9px "JetBrains Mono",monospace;color:var(--muted);margin-left:2px}
+.metric-value{font:700 18px "Space Grotesk",sans-serif;letter-spacing:-.02em}
 .metric-sub{font-size:9px;color:var(--muted);margin-top:4px;line-height:1.25}
 .deductions{border-left:1px solid var(--border);padding-left:12px;display:flex;flex-direction:column;min-width:0}
-.deductions h2{margin-bottom:7px}.deduction{border:1px solid #f0d1ce;background:var(--danger-bg);color:var(--danger);border-radius:6px;padding:7px 8px;font-size:9.5px;line-height:1.35;margin-bottom:6px}
+.deductions h2{margin-bottom:7px}
+.deduction{border:1px solid #f0d1ce;background:var(--danger-bg);color:var(--danger);border-radius:6px;padding:7px 8px;font-size:11px;line-height:1.35;margin-bottom:6px}
 .no-deductions{border:1px solid var(--border);background:var(--court-dim);color:var(--court);border-radius:6px;padding:8px;font-size:10px}
 .actions{display:flex;justify-content:flex-end;margin-top:auto;padding-top:7px}.btn{display:inline-flex;align-items:center;justify-content:center;text-decoration:none;border-radius:7px;padding:8px 12px;font-size:10px;font-weight:600;cursor:pointer}
 .btn-primary{background:var(--court);border:1px solid var(--court);color:#fff}.btn-secondary{background:#fff;border:1px solid var(--border);color:var(--ink)}
@@ -150,12 +152,10 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
     </div>
     <div class="score-box">
       <div class="score-label">Average score:</div>
-      <div class="score-value" id="avgScoreValue">{{ "%.1f"|format(report.final_score) }}</div>
+      <div class="score-value" style="font-size:30px" id="avgScoreValue">{{ "%.1f"|format(report.final_score) }}</div>
       <div class="score-unit">/ 100</div>
     </div>
   </div>
-
-  <div class="section-label">Detailed analysis (video)</div>
 
   {% set landing_x = report.landing_coordinate_m[0] %}
   {% set landing_y = report.landing_coordinate_m[1] %}
@@ -215,22 +215,22 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
       <div class="metrics">
         <div class="card metric">
           <div class="metric-label">Serve score</div>
-          <div class="metric-value"><span data-field="score">{{ "%.1f"|format(report.final_score) }}</span><span class="metric-unit">/100</span></div>
+          <div class="metric-value" style="font-size:24px"><span data-field="score">{{ "%.1f"|format(report.final_score) }}</span><span class="metric-unit">/100</span></div>
           <div class="metric-sub">This serve's score</div>
         </div>
         <div class="card metric">
           <div class="metric-label">Peak height</div>
-          <div class="metric-value"><span data-field="peak">{{ "%.2f"|format(report.max_height_m) }}</span><span class="metric-unit">m</span></div>
+          <div class="metric-value" style="font-size:24px"><span data-field="peak">{{ "%.2f"|format(report.max_height_m) }}</span><span class="metric-unit">m</span></div>
           <div class="metric-sub">Maximum shuttle height</div>
         </div>
         <div class="card metric">
           <div class="metric-label">Landing X / Y</div>
-          <div class="metric-value" style="font-size:15px"><span data-field="landing">{{ "%.2f"|format(landing_x) }}, {{ "%.2f"|format(landing_y) }}</span> <span id="landingStatus" class="{{ 'status-in' if landing_in else 'status-out' }}">({{ "IN" if landing_in else "OUT" }})</span></div>
+          <div class="metric-value" style="font-size:24px"><span data-field="landing">{{ "%.2f"|format(landing_x) }}, {{ "%.2f"|format(landing_y) }}</span> <span id="landingStatus" class="{{ 'status-in' if landing_in else 'status-out' }}">({{ "IN" if landing_in else "OUT" }})</span></div>
           <div class="metric-sub" id="landingReason">Landing is {{ "inside" if landing_in else "outside" }} the preferred drop box.</div>
         </div>
         <div class="card metric">
           <div class="metric-label">Net clearance</div>
-          <div class="metric-value"><span data-field="clearance">{{ "%.2f"|format(report.net_clearance_m) }}</span><span class="metric-unit">m</span></div>
+          <div class="metric-value" style="font-size:24px"><span data-field="clearance">{{ "%.2f"|format(report.net_clearance_m) }}</span><span class="metric-unit">m</span></div>
           <div class="metric-sub">Height above net</div>
         </div>
       </div>
@@ -240,7 +240,8 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
       <h2>Scoring deductions <strong>({{ report.serve_type_label }})</strong></h2>
       <div id="deductionList">
       {% if report.deductions %}
-        {% for d in report.deductions %}<div class="deduction">{{ d }}</div>{% endfor %}
+        {% for d in report.deductions if d.startswith("Serve is OUT") %}<div class="deduction">{{ d }}</div>{% endfor %}
+        {% for d in report.deductions if not d.startswith("Serve is OUT") %}<div class="deduction">{{ d }}</div>{% endfor %}
       {% else %}<div class="no-deductions">No deductions. Excellent execution.</div>{% endif %}
       </div>
       <div class="actions">
@@ -353,11 +354,12 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
       });
       prev.disabled=index===0;next.disabled=index===shots.length-1;
       prev.style.visibility=next.style.visibility=shots.length>1?"visible":"hidden";
+      document.querySelector(".pager").style.display=shots.length>1?"":"none"; // hide the pager if there is only one serve
       const list=document.getElementById("deductionList");
       list.innerHTML="";
       const ds=s.deductions||[];
       if(!ds.length){list.innerHTML='<div class="no-deductions">No deductions. Excellent execution.</div>'}
-      else ds.forEach(d=>{const el=document.createElement("div");el.className="deduction";el.textContent=d;list.appendChild(el)});
+      else [...ds].sort((a,b)=>b.startsWith("Serve is OUT")-a.startsWith("Serve is OUT")).forEach(d=>{const el=document.createElement("div");el.className="deduction";el.textContent=d;list.appendChild(el)});
     }
     const wToggle=document.getElementById("warningToggle");
     if(wToggle){
