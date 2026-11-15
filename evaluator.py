@@ -535,19 +535,19 @@ def evaluate_serve_performance(
     deductions = [
         (
             f"Landing placement (LPS): Shuttlecock landed "
-            f"{dist_err:.2f} m away from the target ({target_name})."
+            f"{dist_err:.2f} m away from the target ({target_name})"
         ),
         (
             f"Net clearance (NCS): Shuttlecock passed "
             f"{net_clearance:.2f} m above the net, "
             f"which is {abs(net_clearance - optimal_clearance):.2f} m "
             f"{'above' if net_clearance > optimal_clearance else 'below'} "
-            f"the optimal value ({optimal_clearance:.2f} m)."
+            f"the optimal value ({optimal_clearance:.2f} m)"
         ),
         (
             f"Peak height (PHS): Shuttlecock reached {max_height:.2f} m, which is {abs(max_height - optimal_height):.2f} m "
             f"{'above' if max_height > optimal_height else 'below'} "
-            f"the optimal value ({optimal_height:.2f} m)."
+            f"the optimal value ({optimal_height:.2f} m)"
         ),
     ]
 
