@@ -142,7 +142,7 @@
   .dropzone-row {
     grid-column: 2; grid-row: 2;
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, var(--side-w)));  /* each dropzone as wide as the left card */
+    grid-template-columns: repeat(2, minmax(0, 1fr));   /* fill the whole right column, same as .preview-panel */
     gap: 40px;
     margin-bottom: 16px;
   }
@@ -622,7 +622,7 @@ const serviceChoice = { side: "right" };
   }
 
   function drawNetPoints() {
-    [[COURT.singlesL, "GCP1"], [COURT.centre, "GCP0 : 0,0,0"], [COURT.singlesR, "GCP2"]].forEach(([x, name]) => {
+    [[COURT.singlesL, "GCP1"], [COURT.centre, "GCP0"], [COURT.singlesR, "GCP2"]].forEach(([x, name]) => {
       dot(x, COURT.net, 4);
       text("ct-label", x, COURT.net - 9, name);
     });
@@ -942,8 +942,9 @@ function pollUploadJob(statusUrl) {
           `${job.current} / ${job.total} frames`;
       } else if (job.status === "matching") {
         title.textContent = "Synchronizing cameras…";
-        progressFill.style.width = "100%";
-        progressLabel.textContent = "Matching frame timing";
+        const pct = Math.max(0, Math.min(100, Number(job.current) || 0));
+        progressFill.style.width = pct + "%";
+        progressLabel.textContent = job.message || "Matching frame timing";
       } else if (job.status === "done") {
         title.textContent = "✓ Videos ready";
         progressFill.style.width = "100%";
@@ -967,8 +968,9 @@ function pollUploadJob(statusUrl) {
           backVideo.style.display = "block";
           document.getElementById("backVideoWrap").classList.remove("empty");
         }
-
-        document.getElementById("previewNote").style.display = "block";
+        
+        const note = document.getElementById("previewNote");
+        if (note) note.style.display = "block";
         submitBtn.disabled = false;
         submitBtn.textContent = "Upload & Extract Frames";
 

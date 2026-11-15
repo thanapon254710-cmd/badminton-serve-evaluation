@@ -123,43 +123,39 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
     </div>
   </div>
 
-{% if warnings %}
-  <div class="warning-bar">
+<!--{% if warnings %}-->
+  <div class="warning-bar" data-jinja-only>
     <button type="button" class="warning-toggle" id="warningToggle" aria-expanded="false" aria-controls="warningPanel">
       <span aria-hidden="true">&#9888;</span> {{ warnings|length }} trajectory warning{{ "" if warnings|length == 1 else "s" }} <span class="action" id="warningToggleAction">Show</span>
     </button>
   </div>
-  <div class="card warning-card" id="warningPanel" hidden>
+  <div class="card warning-card" id="warningPanel" data-jinja-only hidden>
     <div class="eyebrow" style="color:var(--warn)">Trajectory warning</div>
     <div class="warning-title">This result may not be reliable</div>
     {% for w in warnings %}<p class="warning-message">{{ w }}</p>{% endfor %}
   </div>
-{% endif %}
+<!--{% endif %}-->
 
-{% if error %}
-  <div class="card error-card">
+<!--{% if error %}-->
+  <div class="card error-card" data-jinja-only>
     <div class="eyebrow">Evaluation error</div>
     <div class="error-title">We couldn't complete the evaluation</div>
     <p class="error-message">{{ error }}</p>
   </div>
-  <div class="actions" style="margin-top:14px"><span class="footer-note">Check the uploaded clips and calibration, then try again.</span><a class="btn btn-primary" href="/">Start over</a></div>
-{% else %}
+  <div class="actions" data-jinja-only style="margin-top:14px"><span class="footer-note">Check the uploaded clips and calibration, then try again.</span><a class="btn btn-primary" href="/">Start over</a></div>
+<!--{% else %}-->
 
   <div class="card hero">
     <div class="hero-copy">
       <h1>Serve performance</h1>
-      <p class="subtitle">Your two-camera footage has been reconstructed into a 3D shuttle trajectory.{% if report.serve_count is defined and report.serve_count > 1 %} <strong>{{ report.serve_count }} serves</strong> were found in this video. Click the numbered buttons (1, 2, 3 …) in the summary below to see each serve.{% endif %}</p>
+      <p class="subtitle">Your two-camera footage has been reconstructed into a 3D shuttle trajectory.<span id="multiNote"></span></p>
     </div>
     <div class="score-box">
       <div class="score-label">Average score:</div>
-      <div class="score-value" style="font-size:30px" id="avgScoreValue">{{ "%.1f"|format(report.final_score) }}</div>
+      <div class="score-value" style="font-size:30px" id="avgScoreValue">0.0</div>
       <div class="score-unit">/ 100</div>
     </div>
   </div>
-
-  {% set landing_x = report.landing_coordinate_m[0] %}
-  {% set landing_y = report.landing_coordinate_m[1] %}
-  {% set landing_in = (report.landing_status == "IN") %}
 
   <div class="detail-grid">
     <div class="camera-grid">
@@ -180,20 +176,11 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
     </div>
 
     <div class="card landing-card">
-      <div class="landing-title">Shuttlecock landing position{% if report.service_side_label %} &middot; {{ report.service_side_label }}{% endif %}</div>
+      <div class="landing-title">Shuttlecock landing position<span id="sideLabel"></span></div>
       <div class="map-legend" id="mapLegend"></div>
       <div class="map-frame">
         <img src="/static/guide/top_view_spot.jpg" alt="Top view reference court">
-        {% set image_w=1297 %}{% set image_h=1262 %}
-        {% set origin_x_px=657 %}{% set origin_y_px=4 %}{% set depth_end_y_px=1223 %}
-        {% set left_y_px=167 %}{% set right_y_px=1152 %}{% set court_width_m=5.18 %}{% set court_depth_m=6.70 %}
-        {% set tgt = report.landing_target if report.landing_target is defined else none %}
-        {% if tgt and tgt.mode == "point" %}
-        {% set tgt_px=origin_x_px+(tgt.y/court_width_m)*(right_y_px-left_y_px) %}
-        {% set tgt_py=origin_y_px+(tgt.x/court_depth_m)*(depth_end_y_px-origin_y_px) %}
-        <div class="target-marker" id="targetMarker" title="Target: {{ tgt.name }}" style="left:{{ (tgt_px/image_w*100)|round(3) }}%;top:{{ (tgt_py/image_h*100)|round(3) }}%"><span></span></div>
-        {% endif %}
-        {# one marker per serve is added by the script below #}
+        <!-- the target marker and one marker per serve are added by the script below -->
       </div>
     </div>
   </div>
@@ -215,34 +202,31 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
       <div class="metrics">
         <div class="card metric">
           <div class="metric-label">Serve score</div>
-          <div class="metric-value" style="font-size:24px"><span data-field="score">{{ "%.1f"|format(report.final_score) }}</span><span class="metric-unit">/100</span></div>
+          <div class="metric-value" style="font-size:24px"><span data-field="score">0.0</span><span class="metric-unit">/100</span></div>
           <div class="metric-sub">This serve's score</div>
         </div>
         <div class="card metric">
           <div class="metric-label">Peak height</div>
-          <div class="metric-value" style="font-size:24px"><span data-field="peak">{{ "%.2f"|format(report.max_height_m) }}</span><span class="metric-unit">m</span></div>
+          <div class="metric-value" style="font-size:24px"><span data-field="peak">0.00</span><span class="metric-unit">m</span></div>
           <div class="metric-sub">Maximum shuttle height</div>
         </div>
         <div class="card metric">
           <div class="metric-label">Landing X / Y</div>
-          <div class="metric-value" style="font-size:24px"><span data-field="landing">{{ "%.2f"|format(landing_x) }}, {{ "%.2f"|format(landing_y) }}</span> <span id="landingStatus" class="{{ 'status-in' if landing_in else 'status-out' }}">({{ "IN" if landing_in else "OUT" }})</span></div>
-          <div class="metric-sub" id="landingReason">Landing is {{ "inside" if landing_in else "outside" }} the preferred drop box.</div>
+          <div class="metric-value" style="font-size:24px"><span data-field="landing">0.00, 0.00</span> <span id="landingStatus" class="status-out">(OUT)</span></div>
+          <div class="metric-sub" id="landingReason">Landing is outside the preferred drop box.</div>
         </div>
         <div class="card metric">
           <div class="metric-label">Net clearance</div>
-          <div class="metric-value" style="font-size:24px"><span data-field="clearance">{{ "%.2f"|format(report.net_clearance_m) }}</span><span class="metric-unit">m</span></div>
+          <div class="metric-value" style="font-size:24px"><span data-field="clearance">0.00</span><span class="metric-unit">m</span></div>
           <div class="metric-sub">Height above net</div>
         </div>
       </div>
     </div>
 
     <div class="deductions">
-      <h2>Scoring deductions <strong>({{ report.serve_type_label }})</strong></h2>
+      <h2>Scoring deductions <strong>(No data)</strong></h2>
       <div id="deductionList">
-      {% if report.deductions %}
-        {% for d in report.deductions if d.startswith("Serve is OUT") %}<div class="deduction">{{ d }}</div>{% endfor %}
-        {% for d in report.deductions if not d.startswith("Serve is OUT") %}<div class="deduction">{{ d }}</div>{% endfor %}
-      {% else %}<div class="no-deductions">No deductions. Excellent execution.</div>{% endif %}
+      <div class="deduction">No serve has been evaluated yet - showing default values.</div>
       </div>
       <div class="actions">
         <div class="action-group">
@@ -253,9 +237,7 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
     </div>
   </div>
 
-  {# Optional frontend shot data:
-     If a future backend supplies report.shots, this page can render it without changing
-     the layout. With today's backend there is one report, so the pager remains on shot 1. #}
+  <!-- Optional frontend shot data: if the backend supplies report.shots the pager renders it. -->
   <script id="current-data" type="application/json">
   {{ {
     "final_score": report.final_score,
@@ -265,7 +247,9 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
     "landing_status": report.landing_status,
     "landing_status_reason": (report.landing_status_reason or "metres from net centre"),
     "serve_type_label": report.serve_type_label,
-    "deductions": report.deductions
+    "deductions": report.deductions,
+    "service_side_label": report.service_side_label,
+    "landing_target": (report.landing_target if report.landing_target is defined else none)
   } | tojson }}
   </script>
   <script id="shot-data" type="application/json">
@@ -278,12 +262,24 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
     try{shots=raw?JSON.parse(raw):[]}catch(e){shots=[]}
     // The single-serve report is passed as JSON (not spliced into JavaScript), so editors
     // do not flag template tags as JavaScript syntax errors.
-    const current=JSON.parse(document.getElementById("current-data").textContent);
+    // When this file is opened directly (not rendered by Flask) the JSON above still contains raw
+    // template tags and fails to parse; fall back to all-zero default values so the page still works.
+    const DEFAULTS={final_score:0,max_height_m:0,net_clearance_m:0,landing_coordinate_m:[0,0],landing_status:"OUT",
+      landing_status_reason:"No serve evaluated yet",serve_type_label:"No data",service_side_label:null,landing_target:null,
+      deductions:["No serve has been evaluated yet - showing default values."]};
+    let current=DEFAULTS,standalone=false;
+    try{current=Object.assign({},DEFAULTS,JSON.parse(document.getElementById("current-data").textContent))}
+    catch(e){standalone=true}
+    if(standalone)document.querySelectorAll("[data-jinja-only]").forEach(el=>{el.style.display="none"});
+    const sideLabel=document.getElementById("sideLabel");
+    if(sideLabel&&current.service_side_label)sideLabel.textContent=" \u00b7 "+current.service_side_label;
     if(!shots.length)shots=[current];
 
     const avg=shots.reduce((sum,s)=>sum+Number(s.final_score||0),0)/shots.length;
     document.getElementById("avgScoreValue").textContent=avg.toFixed(1);
 
+    const multiNote=document.getElementById("multiNote");
+    if(multiNote&&shots.length>1)multiNote.innerHTML=` <strong>${shots.length} serves</strong> were found in this video. Click the numbered buttons (1, 2, 3 …) in the summary below to see each serve.`;
     let index=0;
     const prev=document.getElementById("prevShot"),next=document.getElementById("nextShot");
     const tabsEl=document.getElementById("shotTabs"),caption=document.getElementById("shotCaption");
@@ -312,6 +308,14 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
     // ---- landing map: every serve is drawn, the selected one is highlighted ----
     const MAP={w:1297,h:1262,ox:657,oy:4,depthEnd:1223,left:167,right:1152,courtW:5.18,courtD:6.70};
     const mapFrame=document.querySelector(".map-frame");
+    // Target marker position comes from data attributes so no template tag sits inside a CSS style.
+    const tgt=current.landing_target;
+    if(tgt&&tgt.mode==="point"){
+      const tm=document.createElement("div");tm.className="target-marker";tm.id="targetMarker";tm.title="Target: "+(tgt.name||"");
+      tm.style.left=((MAP.ox+(tgt.y/MAP.courtW)*(MAP.right-MAP.left))/MAP.w*100).toFixed(3)+"%";
+      tm.style.top=((MAP.oy+(tgt.x/MAP.courtD)*(MAP.depthEnd-MAP.oy))/MAP.h*100).toFixed(3)+"%";
+      tm.innerHTML="<span></span>";mapFrame.appendChild(tm);
+    }
     const markers=shots.map((s,i)=>{
       const xy=s.landing_coordinate_m||current.landing_coordinate_m;
       const inStatus=(s.landing_status||"OUT")==="IN";
@@ -383,7 +387,7 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
     render();
   })();
   </script>
-{% endif %}
+<!--{% endif %}-->
 </div>
 </body>
 </html>

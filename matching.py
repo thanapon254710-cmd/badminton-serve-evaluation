@@ -101,7 +101,8 @@ def detect_shuttle_in_frame(
     return None, None, 0.0
 
 
-def extract_trajectory(folder_path: str):
+def extract_trajectory(folder_path: str, progress_callback=None, progress_start=0.0, progress_span=0.0, camera_label=""):
+
     image_paths = sorted([
         p for p in glob.glob(os.path.join(folder_path, "*"))
         if p.lower().endswith(('.jpg', '.jpeg', '.png', '.JPG', '.PNG'))
@@ -143,6 +144,14 @@ def extract_trajectory(folder_path: str):
         )
 
         prev_frame = frame
+
+        if progress_callback and (idx % 5 == 0 or idx + 1 == len(image_paths)):
+            fraction = (idx + 1) / len(image_paths)
+            percent = progress_start + (fraction * progress_span)
+            progress_callback(
+                percent,
+                f"Analyzing {camera_label} camera frames: {idx + 1} / {len(image_paths)}",
+            )
 
     return signals, filenames
 
@@ -204,7 +213,8 @@ MAX_START_LAG = 7
 
 def align_shorter_base(
     kin_a: np.ndarray,
-    kin_b: np.ndarray
+    kin_b: np.ndarray,
+    progress_callback=None,
 ) -> Tuple[List[Tuple[int, int]], int, str, float]:
     """
     Synchronize both views assuming they started together (same "1, 2,
@@ -264,6 +274,13 @@ def align_shorter_base(
             + 0.35 * float(np.mean(trimmed))
         )
 
+        if progress_callback:
+            fraction = (start_idx + 1) / (search_limit + 1)
+            progress_callback(
+                80.0 + fraction * 15.0,
+                f"Comparing synchronization offsets: {start_idx + 1} / {search_limit + 1}",
+            )
+
     best_start = int(np.argmin(scores))
     best_score = float(scores[best_start])
 
@@ -306,13 +323,20 @@ def align_shorter_base(
 # 3. Main Matching Process
 # ----------------------------------------------------------------------------
 
-def match_badminton(folder_a: str, folder_b: str) -> dict:
+def match_badminton(folder_a: str, folder_b: str, progress_callback=None) -> dict:
+
+    if progress_callback:
+        progress_callback(0, "Starting camera synchronization…")
 
     print(f"[1/3] Extracting shuttlecock trajectory from Folder A: {folder_a}")
-    sig_a, files_a = extract_trajectory(folder_a)
+    sig_a, files_a = extract_trajectory(
+        folder_a, progress_callback, 0.0, 40.0, "back"
+    )
 
     print(f"[2/3] Extracting shuttlecock trajectory from Folder B: {folder_b}")
-    sig_b, files_b = extract_trajectory(folder_b)
+    sig_b, files_b = extract_trajectory(
+        folder_b, progress_callback, 40.0, 40.0, "side"
+    )
 
     print(
         "[3/3] Synchronizing with the shorter video as the complete "
@@ -325,12 +349,18 @@ def match_badminton(folder_a: str, folder_b: str) -> dict:
     path, offset, offset_method, offset_confidence = align_shorter_base(
         kin_a,
         kin_b,
+        progress_callback=progress_callback,
     )
 
-    matches = [
-        {"file_a": files_a[i], "file_b": files_b[j]}
-        for i, j in path
-    ]
+    matches = []
+    for pair_idx, (i, j) in enumerate(path):
+        matches.append({"file_a": files_a[i], "file_b": files_b[j]})
+        if progress_callback and (pair_idx % 25 == 0 or pair_idx + 1 == len(path)):
+            fraction = (pair_idx + 1) / max(len(path), 1)
+            progress_callback(
+                95.0 + fraction * 5.0,
+                f"Building synchronized frame pairs: {pair_idx + 1} / {len(path)}",
+            )
 
     return {
         "folder_a": folder_a,

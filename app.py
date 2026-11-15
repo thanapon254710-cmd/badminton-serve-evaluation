@@ -587,7 +587,9 @@ def create_sync_video(frame_paths, output_path, fps, frame_size):
         writer.release()
 
 
-def save_synchronized_outputs(match_result, output_root, job_id, side_fps, back_fps):
+def save_synchronized_outputs(
+    match_result, output_root, job_id, side_fps, back_fps, progress_callback=None
+):
     """
     Save the 1-to-1 pairs as:
       matched/back2/pair_XXXX_back.jpg
@@ -633,6 +635,13 @@ def save_synchronized_outputs(match_result, output_root, job_id, side_fps, back_
         back_paths.append(back_dst)
         side_paths.append(side_dst)
 
+        if progress_callback and (idx % 10 == 0 or idx == len(matches)):
+            fraction = idx / max(len(matches), 1)
+            progress_callback(
+                95.0 + fraction * 2.0,
+                f"Saving synchronized frames: {idx} / {len(matches)}",
+            )
+
     if not back_paths or not side_paths:
         raise RuntimeError("Matched pairs were found, but no frames could be saved.")
 
@@ -658,12 +667,19 @@ def save_synchronized_outputs(match_result, output_root, job_id, side_fps, back_
     if sync_fps <= 0:
         sync_fps = 30.0
 
+    if progress_callback:
+        progress_callback(97.0, "Creating synchronized back-camera video…")
+
     create_sync_video(
         back_paths,
         os.path.join(UPLOAD_VIDEO_DIR, "back_sync.mp4"),
         sync_fps,
         (back0.shape[1], back0.shape[0]),
     )
+
+    if progress_callback:
+        progress_callback(97.75, "Creating synchronized side-camera video…")
+
     create_sync_video(
         side_paths,
         os.path.join(UPLOAD_VIDEO_DIR, "side_sync.mp4"),
@@ -675,10 +691,17 @@ def save_synchronized_outputs(match_result, output_root, job_id, side_fps, back_
     # reachable the same way the calibration frame JPGs already are
     # (Flask's default /static route serves anything under STATIC_DIR),
     # re-encoded to a codec browsers can actually decode.
+    if progress_callback:
+        progress_callback(98.5, "Preparing browser preview: back camera…")
+
     make_browser_playable_copy(
         os.path.join(UPLOAD_VIDEO_DIR, "back_sync.mp4"),
         os.path.join(STATIC_DIR, "back_sync.mp4"),
     )
+
+    if progress_callback:
+        progress_callback(99.0, "Preparing browser preview: side camera…")
+
     make_browser_playable_copy(
         os.path.join(UPLOAD_VIDEO_DIR, "side_sync.mp4"),
         os.path.join(STATIC_DIR, "side_sync.mp4"),
@@ -719,16 +742,41 @@ def run_upload_job(job_id):
             job_id,
             status="matching",
             current=0,
-            total=max(side_count, back_count),
-            message="Synchronizing side and back camera frames…",
+            total=100,
+            message="Starting camera synchronization…",
         )
 
         # matching.py remains the single source of truth for synchronization.
         from matching import match_badminton
 
+        def matching_progress(percent, message):
+            # Reserve the final 5% for saving synchronized outputs and
+            # preparing the browser-playable preview videos.
+            overall_percent = round(max(0.0, min(100.0, percent)) * 0.95)
+            update_upload_job(
+                job_id,
+                status="matching",
+                current=overall_percent,
+                total=100,
+                message=message,
+            )
+
+        def output_progress(percent, message):
+            update_upload_job(
+                job_id,
+                status="matching",
+                current=max(95, min(99, int(percent))),
+                total=100,
+                message=message,
+            )
+
         # Folder A = back, Folder B = side, matching.py returns
         # file_a/file_b pairs with a strict 1-to-1 frame offset.
-        result = match_badminton(back_frames, side_frames)
+        result = match_badminton(
+            back_frames,
+            side_frames,
+            progress_callback=matching_progress,
+        )
 
         os.makedirs(matched_root, exist_ok=True)
         with open(os.path.join(matched_root, "matched.json"), "w", encoding="utf-8") as f:
@@ -740,6 +788,7 @@ def run_upload_job(job_id):
             job_id,
             side_fps,
             back_fps,
+            progress_callback=output_progress,
         )
 
         # Keep the matched metadata at the project-level path too, for easy debugging.
