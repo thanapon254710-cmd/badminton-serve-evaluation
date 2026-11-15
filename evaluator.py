@@ -464,37 +464,6 @@ def evaluate_serve_performance(
     weights=None,
     landing_target=None,
 ):
-    """
-    Evaluate serve quality from a triangulated 3D trajectory.
-
-    Three component scores, each on its own 0..100 scale:
-        LPS  Landing Placement Score  (distance to nearest drop-box corner)
-        NCS  Net Clearance Score
-        PHS  Peak Height Score
-    Total (0..100) = weighted average of LPS, NCS and PHS. The default is an
-    equal average; see DEFAULT_WEIGHTS / the `weights` argument.
-
-    Short serve:
-        lower net clearance -> higher NCS
-        lower peak height   -> higher PHS
-
-    High/long serve:
-        higher net clearance -> higher NCS
-        higher peak height   -> higher PHS
-
-    `service_side` ("right" or "left") selects which service area is the
-    IN box: right = Y 0..+2.59 m, left = Y -2.59..0 m.
-
-    `landing_target` chooses what the landing score aims at: None (default)
-    scores against the nearest of the four box corners GCP3-GCP6; a dict
-    {"mode": "point", "col": c, "row": r} scores against ONE intersection of
-    the 7 x 9 grid (0-based indices, column 0 = centre line, row 0 = short
-    service line).
-
-    IN/OUT remains separate from scoring. A landing outside the preferred
-    drop box is OUT and the final serve score is forced to 0 (the three
-    component scores are still reported).
-    """
     if len(trajectory_data) == 0:
         return {"error": "No 3D trajectory points recorded."}
 
@@ -551,18 +520,34 @@ def evaluate_serve_performance(
     )
     total_score = unpenalised_total
 
+    optimal_clearance = (
+        SHORT_NET_IDEAL_CLEARANCE_M
+        if serve_type == "short_front_corner"
+        else HIGH_NET_IDEAL_CLEARANCE_M
+    )
+
+    optimal_height = (
+        SHORT_PEAK_IDEAL_M
+        if serve_type == "short_front_corner"
+        else HIGH_PEAK_IDEAL_M
+    )
+
     deductions = [
         (
-            f"Landing placement (LPS): {lps:.1f}/100 "
-            f"({target_name}, {dist_err:.2f}m away)"
+            f"Landing placement (LPS): Shuttlecock landed "
+            f"{dist_err:.2f} m away from the target ({target_name})."
         ),
         (
-            f"Net clearance (NCS): {ncs:.1f}/100 "
-            f"({net_clearance:.2f}m above net)"
+            f"Net clearance (NCS): Shuttlecock passed "
+            f"{net_clearance:.2f} m above the net, "
+            f"which is {abs(net_clearance - optimal_clearance):.2f} m "
+            f"{'above' if net_clearance > optimal_clearance else 'below'} "
+            f"the optimal value ({optimal_clearance:.2f} m)."
         ),
         (
-            f"Peak height (PHS): {phs:.1f}/100 "
-            f"({max_height:.2f}m)"
+            f"Peak height (PHS): Shuttlecock reached {max_height:.2f} m, which is {abs(max_height - optimal_height):.2f} m "
+            f"{'above' if max_height > optimal_height else 'below'} "
+            f"the optimal value ({optimal_height:.2f} m)."
         ),
     ]
 

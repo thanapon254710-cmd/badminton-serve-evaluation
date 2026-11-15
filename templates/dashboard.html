@@ -28,7 +28,11 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
 .card{background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 1px 2px rgba(0,0,0,.035)}
 .hero{min-height:100px;display:grid;grid-template-columns:minmax(0,1fr) 190px;gap:20px;padding:20px 15px;align-items:center}
 .hero-copy{min-width:0}.subtitle{font-size:12px;color:var(--muted);line-height:1.5;max-width:none}
-.score-box{height:100%;border-left:1px solid var(--border);display:flex;flex-direction:column;justify-content:center;align-items:center}
+.hero{grid-template-columns:minmax(0,1fr) auto!important}
+.score-row{display:flex;align-self:stretch;align-items:stretch}
+.score-box{height:100%;width:150px;padding:0 8px;box-sizing:border-box;border-left:1px solid var(--border);display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center}
+.score-box.main{width:190px}.score-box[hidden]{display:none}
+.score-box.side .score-value{font-size:22px!important}
 .score-value{font:700 25px "Space Grotesk",sans-serif}.score-unit{font:9px "JetBrains Mono",monospace;color:var(--muted);margin-top:6px}
 .score-label{font:10px "JetBrains Mono",monospace;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
 .eyebrow,.section-label{font:10px "JetBrains Mono",monospace;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.08em}
@@ -105,7 +109,7 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
 }
 @media(max-width:700px){
  .topbar{align-items:flex-start;flex-direction:column}.steps{width:100%;justify-content:space-between}.step-line{flex:1}
- .hero{grid-template-columns:1fr}.score-box{border-left:0;border-top:1px solid var(--border);padding-top:14px}.score-unit{margin-top:4px}
+ .hero{grid-template-columns:1fr!important}.score-row{border-top:1px solid var(--border);padding-top:14px}.score-box,.score-box.main{width:auto;flex:1;border-left:0;padding-top:0}.score-box+.score-box{border-left:1px solid var(--border)}.score-unit{margin-top:4px}
  .camera-grid{grid-template-columns:1fr}.camera-frame{height:220px}.metrics{grid-template-columns:1fr}.action-group{width:100%}.btn{flex:1}
 }
 </style>
@@ -150,10 +154,22 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
       <h1>Serve performance</h1>
       <p class="subtitle">Your two-camera footage has been reconstructed into a 3D shuttle trajectory.<span id="multiNote"></span></p>
     </div>
-    <div class="score-box">
-      <div class="score-label">Average score:</div>
-      <div class="score-value" style="font-size:30px" id="avgScoreValue">0.0</div>
-      <div class="score-unit">/ 100</div>
+    <div class="score-row">
+      <div class="score-box side" id="minBox" hidden>
+        <div class="score-label">Minimum score:</div>
+        <div class="score-value" id="minScoreValue">0.0</div>
+        <div class="score-unit" id="minScoreUnit">/ 100</div>
+      </div>
+      <div class="score-box main">
+        <div class="score-label">Average score:</div>
+        <div class="score-value" style="font-size:30px" id="avgScoreValue">0.0</div>
+        <div class="score-unit">/ 100</div>
+      </div>
+      <div class="score-box side" id="maxBox" hidden>
+        <div class="score-label">Maximum score:</div>
+        <div class="score-value" id="maxScoreValue">0.0</div>
+        <div class="score-unit" id="maxScoreUnit">/ 100</div>
+      </div>
     </div>
   </div>
 
@@ -202,23 +218,23 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
       <div class="metrics">
         <div class="card metric">
           <div class="metric-label">Serve score</div>
-          <div class="metric-value" style="font-size:24px"><span data-field="score">0.0</span><span class="metric-unit">/100</span></div>
+          <div class="metric-value" style="font-size:24px"><span data-field="score">0.0</span><span class="metric-unit">/100</span> <span id="landingStatus" class="status-out">(OUT)</span></div>
           <div class="metric-sub">This serve's score</div>
         </div>
         <div class="card metric">
-          <div class="metric-label">Peak height</div>
-          <div class="metric-value" style="font-size:24px"><span data-field="peak">0.00</span><span class="metric-unit">m</span></div>
-          <div class="metric-sub">Maximum shuttle height</div>
-        </div>
-        <div class="card metric">
-          <div class="metric-label">Landing X / Y</div>
-          <div class="metric-value" style="font-size:24px"><span data-field="landing">0.00, 0.00</span> <span id="landingStatus" class="status-out">(OUT)</span></div>
-          <div class="metric-sub" id="landingReason">Landing is outside the preferred drop box.</div>
+          <div class="metric-label">Landing placement</div>
+          <div class="metric-value" style="font-size:24px"><span data-field="lps">0.0</span><span class="metric-unit">/100</span></div>
+          <div class="metric-sub" id="landingSub">Distance to target: 0.00 m</div>
         </div>
         <div class="card metric">
           <div class="metric-label">Net clearance</div>
-          <div class="metric-value" style="font-size:24px"><span data-field="clearance">0.00</span><span class="metric-unit">m</span></div>
-          <div class="metric-sub">Height above net</div>
+          <div class="metric-value" style="font-size:24px"><span data-field="ncs">0.0</span><span class="metric-unit">/100</span></div>
+          <div class="metric-sub" id="netSub">0.00 m above the net</div>
+        </div>
+        <div class="card metric">
+          <div class="metric-label">Peak height</div>
+          <div class="metric-value" style="font-size:24px"><span data-field="phs">0.0</span><span class="metric-unit">/100</span></div>
+          <div class="metric-sub" id="peakSub">Peak 0.00 m</div>
         </div>
       </div>
     </div>
@@ -231,7 +247,7 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
       <div class="actions">
         <div class="action-group">
           <a class="btn btn-secondary" href="/calibrate">Review calibration</a>
-          <a class="btn btn-primary" href="/">Evaluate another serve</a>
+          <a class="btn btn-primary" href="/">Evaluate another video</a>
         </div>
       </div>
     </div>
@@ -249,7 +265,8 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
     "serve_type_label": report.serve_type_label,
     "deductions": report.deductions,
     "service_side_label": report.service_side_label,
-    "landing_target": (report.landing_target if report.landing_target is defined else none)
+    "landing_target": (report.landing_target if report.landing_target is defined else none),
+    "component_scores": (report.component_scores if report.component_scores is defined else none)
   } | tojson }}
   </script>
   <script id="shot-data" type="application/json">
@@ -265,7 +282,7 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
     // When this file is opened directly (not rendered by Flask) the JSON above still contains raw
     // template tags and fails to parse; fall back to all-zero default values so the page still works.
     const DEFAULTS={final_score:0,max_height_m:0,net_clearance_m:0,landing_coordinate_m:[0,0],landing_status:"OUT",
-      landing_status_reason:"No serve evaluated yet",serve_type_label:"No data",service_side_label:null,landing_target:null,
+      landing_status_reason:"No serve evaluated yet",serve_type_label:"No data",service_side_label:null,landing_target:null,component_scores:{LPS:0,NCS:0,PHS:0},
       deductions:["No serve has been evaluated yet - showing default values."]};
     let current=DEFAULTS,standalone=false;
     try{current=Object.assign({},DEFAULTS,JSON.parse(document.getElementById("current-data").textContent))}
@@ -277,9 +294,19 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
 
     const avg=shots.reduce((sum,s)=>sum+Number(s.final_score||0),0)/shots.length;
     document.getElementById("avgScoreValue").textContent=avg.toFixed(1);
+    // Minimum / maximum score are only shown when the video contains several serves.
+    if(shots.length>1){
+      const sc=shots.map(x=>Number(x.final_score||0));
+      const lo=sc.indexOf(Math.min(...sc)),hi=sc.indexOf(Math.max(...sc));
+      document.getElementById("minScoreValue").textContent=sc[lo].toFixed(1);
+      document.getElementById("maxScoreValue").textContent=sc[hi].toFixed(1);
+      document.getElementById("minScoreUnit").textContent=`/ 100 \u00b7 Serve ${lo+1}`;
+      document.getElementById("maxScoreUnit").textContent=`/ 100 \u00b7 Serve ${hi+1}`;
+      document.getElementById("minBox").hidden=false;document.getElementById("maxBox").hidden=false;
+    }
 
     const multiNote=document.getElementById("multiNote");
-    if(multiNote&&shots.length>1)multiNote.innerHTML=` <strong>${shots.length} serves</strong> were found in this video. Click the numbered buttons (1, 2, 3 …) in the summary below to see each serve.`;
+    if(multiNote&&shots.length>1)multiNote.innerHTML=` <strong>${shots.length} serves</strong> were found in this video.`;
     let index=0;
     const prev=document.getElementById("prevShot"),next=document.getElementById("nextShot");
     const tabsEl=document.getElementById("shotTabs"),caption=document.getElementById("shotCaption");
@@ -339,11 +366,14 @@ h2{font-size:14px;margin:0}h3{font-size:13px;margin:0}p{margin:0}
       const s=shots[index]||current, xy=s.landing_coordinate_m||current.landing_coordinate_m;
       const inStatus=(s.landing_status||"OUT")==="IN";
       document.querySelector('[data-field="score"]').textContent=Number(s.final_score||0).toFixed(1);
-      document.querySelector('[data-field="peak"]').textContent=Number(s.max_height_m||0).toFixed(2);
-      document.querySelector('[data-field="clearance"]').textContent=Number(s.net_clearance_m||0).toFixed(2);
-      document.querySelector('[data-field="landing"]').textContent=`${Number(xy[0]||0).toFixed(2)}, ${Number(xy[1]||0).toFixed(2)}`;
+      const cs=s.component_scores||{}, tg=s.landing_target||{}, f1=v=>Number(v||0).toFixed(1), f2=v=>Number(v||0).toFixed(2);
+      document.querySelector('[data-field="lps"]').textContent=f1(cs.LPS);
+      document.querySelector('[data-field="ncs"]').textContent=f1(cs.NCS);
+      document.querySelector('[data-field="phs"]').textContent=f1(cs.PHS);
+      document.getElementById("landingSub").textContent=`${f2(tg.distance_m)} m from target${tg.name?" ("+tg.name+")":""} \u00b7 landed at ${f2(xy[0])}, ${f2(xy[1])}`;
+      document.getElementById("netSub").textContent=`${f2(s.net_clearance_m)} m above the net`;
+      document.getElementById("peakSub").textContent=`Peak ${f2(s.max_height_m)} m`;
       const st=document.getElementById("landingStatus");st.textContent=inStatus?"(IN)":"(OUT)";st.className=inStatus?"status-in":"status-out";
-      document.getElementById("landingReason").textContent=`Landing is ${inStatus?"inside":"outside"} the preferred drop box.`;
       Array.from(tabsEl.children).forEach((b,i)=>b.setAttribute("aria-selected",i===index?"true":"false"));
       caption.textContent=shots.length>1
         ?`Serve ${index+1} of ${shots.length}`+(isFinite(Number(s.start_s))?` · starts at ${Number(s.start_s).toFixed(1)} s in the video`:"")
